@@ -32,6 +32,21 @@ escuta ao vivo no banco, transação, exclusão de verdade, escrita fora da port
 única, campo do usuário indo pra tela sem escape, travessão no texto. Ele sai com
 código 1 quando acha erro, então serve para travar a publicação.
 
+### As oito bancadas de teste
+
+```bash
+for f in bancada/testes_*.py; do python3 "$f"; done && python3 testar.py
+```
+
+São **546 testes** em dez arquivos. Nove cobrem uma área cada (hoje, funil,
+negócio, pessoas, painel, cadastro, núcleo, tutorial, dupla) e o décimo, `testar.py`, é a
+suíte geral que atravessa tudo. Escreva o seu em `bancada/` usando `harness.py`, que
+carrega o CRM inteiro num DOM de mentira e traz os ajudantes prontos. O cabeçalho
+do `harness.py` explica cada um.
+
+Regra da casa: **todo defeito corrigido vira teste que falhava antes.** Um teste
+que nunca falhou não prova nada. Confirme rodando contra o código antigo.
+
 `testar.py` é o teste de fumaça. Não existe navegador nem node nesta máquina, mas
 o macOS traz um motor de JavaScript em `osascript -l JavaScript`. O arquivo monta
 um DOM de mentira, carrega o sistema inteiro e roda as contas com uma base de
@@ -215,3 +230,25 @@ documento vindo de fora do app impossível de editar para sempre.
 **Arquivos de regra antigos estão em `_historico/` e não podem ser colados.** Um
 deles apagaria a pesquisa de imprensa e a mobilidade inteira do projeto do
 festival. O aviso está na porta da pasta.
+
+
+**11/09/2026, varredura completa.** Sete agentes varreram uma área cada, com um
+conferidor independente por área, e depois eu percorri a interface no navegador
+com uma base de dados de teste. Saíram **61 defeitos corrigidos**, todos com
+teste que trava a volta. Os mais sérios:
+
+- Clicar em qualquer campo dentro de um formulário disparava o salvar e impedia o
+  campo de receber foco. Atingia os 24 formulários do sistema.
+- O resumo do dia comparava contrato fechado com meta de MRR e escrevia 840%.
+- Negócio já fechado podia trocar de estágio, apagando onde ele morreu.
+- Um negócio com tipo fora dos dois funis derrubava a tela Hoje inteira.
+- No primeiro dia de uso, a tela de fila limpa afirmava que os negócios tinham
+  sido tocados hoje quando nenhum tinha toque nenhum registrado.
+- A faixa de "registros esperando internet" lia uma fila morta e nunca mostrava
+  número.
+- A partida não tratava erro: qualquer exceção deixava a pessoa na tela de senha
+  para sempre, sem mensagem.
+
+**Dados de teste.** A base tem registros marcados com `[DADO DE TESTE]` na
+observação. Para limpar, abra cada um e arquive. Nada é apagado de verdade neste
+sistema, por desenho.

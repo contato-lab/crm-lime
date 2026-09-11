@@ -176,13 +176,34 @@ service cloud.firestore {
       allow read: if ok();
       allow create, update: if ok()
         && request.resource.data.keys().size() <= 10
-        && request.resource.data.perfil in ['admin','vendedor','gestor']
+        && request.resource.data.perfil in ['admin','sdr','closer','vendedor','gestor']
         && request.resource.data.nome is string
         && request.resource.data.nome.size() <= 80
         && request.resource.data.hash is string
         && request.resource.data.hash.size() == 64
         && request.resource.data.ativo is bool;
       // Revogar e ativo:false. A sessao da pessoa cai na proxima carga.
+      allow delete: if false;
+    }
+
+    // Os funis que a casa cria. Documento pequeno e so de configuracao:
+    // rotulo, icone e a lista de etapas. Nao guarda dinheiro nem nome de
+    // ninguem, entao o risco de leitura e o mesmo do resto do CRM.
+    //
+    // POR QUE NAO TEM DELETE: apagar um funil deixaria todo negocio dele
+    // sem etapa e sem nome de tipo, calado. Desligar e ativo:false, e os
+    // negocios continuam abrindo normalmente.
+    match /crm_tipos/{id} {
+      allow read: if ok();
+      allow create, update: if ok()
+        && request.resource.data.keys().size() <= 14
+        && request.resource.data.k is string
+        && request.resource.data.k.size() <= 24
+        && request.resource.data.rot is string
+        && request.resource.data.rot.size() <= 40
+        && request.resource.data.dinheiro in ['recorrente','unico']
+        && request.resource.data.estagios is list
+        && request.resource.data.estagios.size() <= 12;
       allow delete: if false;
     }
 

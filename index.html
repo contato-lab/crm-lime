@@ -977,7 +977,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.7";
+var VERSAO = "2026-09-11.8";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1014,9 +1014,25 @@ var FUNIL = {
   ]
 };
 
+/* Estes dois sao a SEMENTE, nao a lista fechada. A casa pode criar
+   outros funis na tela de Funis, e eles chegam pelo banco e entram aqui
+   em aplicarTipos(). O que o codigo precisa saber de um funil novo cabe
+   em dois campos:
+
+   dinheiro  "recorrente" = mensalidade que se repete (fee de agencia)
+             "unico"      = entra uma vez (cota de patrocinio)
+   bloco     onde os valores moram no documento: "ag" ou "pt". Segue o
+             dinheiro, e existe separado porque e ele que o resto do
+             codigo le. Trocar isso quebraria todo negocio ja gravado.
+
+   O que NAO se generaliza: edicao e corte comercial. Sao do festival, e
+   quem depende deles ja pergunta por n.pt.edicao, entao funil novo do
+   tipo "unico" simplesmente nao entra nessas contas. */
 var TIPOS = [
-  { k:"agencia",    rot:"Agência",    rotLongo:"Contrato de agência", ic:"📈" },
-  { k:"patrocinio", rot:"Patrocínio", rotLongo:"Cota de patrocínio",  ic:"🏁" }
+  { k:"agencia",    rot:"Agência",    rotLongo:"Contrato de agência", ic:"📈",
+    dinheiro:"recorrente", bloco:"ag", daCasa:true },
+  { k:"patrocinio", rot:"Patrocínio", rotLongo:"Cota de patrocínio",  ic:"🏁",
+    dinheiro:"unico",      bloco:"pt", daCasa:true }
 ];
 
 // Dias de silêncio tolerados. Dois números por funil, não nove: ninguém
@@ -1421,12 +1437,14 @@ function tipoAtivDe(k){
    pode depender de ler documento nenhum.
    --------------------------------------------------------------------- */
 function mrrDe(n){                                   // R$/mês que a Lime fatura
-  if(!n || n.tipo !== "agencia" || !n.ag) return 0;
+  // Pergunta pelo comportamento, nao pelo nome: funil de mensalidade
+  // criado pela casa fatura por mes igual ao de agencia.
+  if(!n || !ehRecorrente(n) || !n.ag) return 0;
   return Math.round((n.ag.mrr||0) + (n.ag.verbaMidia||0) * ((n.ag.pctVerba||0)/100));
 }
 function valorRefDe(n){                              // R$ do negócio, pra ordenar e listar
   if(!n) return 0;
-  if(n.tipo === "patrocinio") return Math.round((n.pt && n.pt.valor) || 0);  // permuta fica fora
+  if(ehUnico(n)) return Math.round((n.pt && n.pt.valor) || 0);  // permuta fica fora
   return Math.round(mrrDe(n) * (((n.ag && n.ag.meses)||0) || 12));           // indeterminado conta 12
 }
 // Valor usado só pra ORDENAR. Negócio sem valor não pode afundar pro fim.
@@ -1554,6 +1572,155 @@ function meuNegocio(n){
   if(d.id && SESSAO.acessoId) return d.id === SESSAO.acessoId;
   return !!d.nome && chave(d.nome) === chave(SESSAO.nome || "");
 }
+/* Renovacao NAO e captacao. O contrato que se renova nasce como negocio
+   novo, e sem esta marca ele entraria no placar do mes como se alguem
+   tivesse prospectado um cliente que ja era da casa. O SDR apareceria
+   captando em dezembro o cliente que ele trouxe ano passado. */
+function ehRenovacao(n){
+  if(!n) return false;
+  return !!((n.ag && n.ag.renovacaoDeId) || (n.pt && n.pt.renovacaoDeId));
+}
+/* A renovacao herda o par de maos do contrato anterior: quem captou o
+   cliente continua sendo quem captou, e quem fechou continua fechando.
+   Inventar um dono novo aqui apagaria o historico de quem trouxe a
+   conta. */
+function herdarQuemToca(velho, estagioInicial){
+  var r = { captouId:"", captouNome:"", fechaId:"", fechaNome:"",
+            passadoEm:"", passadoNoEstagio:"" };
+  if(!velho) return r;
+  r.captouId  = velho.captouId  || "";
+  r.captouNome = velho.captouNome || "";
+  r.fechaId   = velho.fechaId   || "";
+  r.fechaNome = velho.fechaNome || "";
+  /* Renovacao ja nasce na mao de quem fecha: nao existe qualificar de
+     novo um cliente que ja e cliente. So quando havia closer antes. */
+  if(r.fechaNome || r.fechaId){
+    r.passadoEm = hojeISO();
+    r.passadoNoEstagio = estagioInicial || "";
+  }
+  return r;
+}
+/* ---------------------------------------------------------------------
+   TIPOS DE NEGOCIO, OS FUNIS
+
+   Perguntar pelo tipo pelo NOME ("agencia") amarra o codigo aos dois
+   funis que a casa comecou. Daqui pra frente pergunta-se pelo
+   COMPORTAMENTO: esse dinheiro se repete todo mes ou entra uma vez?
+   Assim um funil criado amanha, de consultoria ou de licenciamento, ja
+   nasce somando certo em todas as contas, sem ninguem editar o codigo. */
+function tipoPorK(k){
+  for(var i=0;i<TIPOS.length;i++) if(TIPOS[i].k === k) return TIPOS[i];
+  return null;
+}
+function dinheiroDe(k){
+  var t = tipoPorK(k);
+  return (t && t.dinheiro) || "unico";
+}
+function blocoDe(k){
+  var t = tipoPorK(k);
+  return (t && t.bloco) || "pt";
+}
+function ehRecorrente(n){ return dinheiroDe(n && n.tipo) === "recorrente"; }
+function ehUnico(n){      return dinheiroDe(n && n.tipo) === "unico"; }
+function rotTipo(k, longo){
+  var t = tipoPorK(k);
+  if(!t) return k || "";
+  return longo ? (t.rotLongo || t.rot) : t.rot;
+}
+
+/* ---------------------------------------------------------------------
+   FUNIS VINDOS DO BANCO
+
+   TIPOS e FUNIL comecam com os dois funis da casa escritos no codigo, e
+   aqui em cima disso entra o que estiver em crm_tipos. Por que nao viver
+   so no banco: sem rede, ou no primeiro carregamento, o CRM tem que
+   abrir e desenhar assim mesmo. Com semente no codigo o pior caso e
+   abrir com os funis de fabrica; sem ela, o pior caso e um funil vazio,
+   que faz todo negocio parecer estar fora de etapa.
+
+   O QUE O BANCO PODE E O QUE NAO PODE MUDAR
+   Pode: rotulo, icone, ordem, ligar e desligar, e a lista de estagios.
+   Nao pode: o "bloco" de um funil que ja existe. Bloco e onde os valores
+   moram dentro do documento; trocar isso faria todo negocio ja gravado
+   procurar dinheiro no lugar errado e aparecer valendo zero. */
+var TIPOS_SEMENTE = JSON.parse(JSON.stringify(TIPOS));
+var FUNIL_SEMENTE = JSON.parse(JSON.stringify(FUNIL));
+
+function aplicarTipos(docs){
+  var porK = {}, i, j;
+  TIPOS = JSON.parse(JSON.stringify(TIPOS_SEMENTE));
+  FUNIL = JSON.parse(JSON.stringify(FUNIL_SEMENTE));
+  for(i=0;i<TIPOS.length;i++) porK[TIPOS[i].k] = TIPOS[i];
+
+  for(i=0;i<(docs||[]).length;i++){
+    var d = docs[i];
+    if(!d || !d.k) continue;
+    var estagios = [];
+    for(j=0;j<((d.estagios)||[]).length;j++){
+      var e = d.estagios[j];
+      if(!e || !e.k) continue;
+      estagios.push({ k:e.k, rot:e.rot || e.k,
+                      p: typeof e.p === "number" ? e.p : 0.2,
+                      teto: parseInt(e.teto, 10) || 14,
+                      saida: e.saida || "",
+                      compromisso: !!e.compromisso });
+    }
+    var velho = porK[d.k];
+    if(velho){
+      // Funil da casa: rotulo e estagios podem mudar, bloco nunca.
+      velho.rot = d.rot || velho.rot;
+      velho.rotLongo = d.rotLongo || velho.rotLongo;
+      velho.ic = d.ic || velho.ic;
+      velho.ativo = d.ativo !== false;
+      if(estagios.length) FUNIL[d.k] = estagios;
+    } else {
+      if(!estagios.length) continue;   // funil sem estagio nao desenha nada
+      var dinheiro = d.dinheiro === "recorrente" ? "recorrente" : "unico";
+      var novo = { k:d.k, rot:d.rot || d.k, rotLongo:d.rotLongo || d.rot || d.k,
+                   ic:d.ic || "📁", dinheiro:dinheiro,
+                   bloco: dinheiro === "recorrente" ? "ag" : "pt",
+                   daCasa:false, ativo:d.ativo !== false };
+      TIPOS.push(novo);
+      porK[d.k] = novo;
+      FUNIL[d.k] = estagios;
+    }
+    TOQUE[d.k] = { normal: parseInt(d.toqueNormal, 10) || 7,
+                   ultimo: parseInt(d.toqueUltimo, 10) || 4 };
+    ABANDONO[d.k] = parseInt(d.abandono, 10) || 45;
+    CICLO_MEDIANO[d.k] = parseInt(d.ciclo, 10) || 45;
+  }
+
+  // Ordem de tela: a do banco quando existir, senao a da semente.
+  TIPOS.sort(function(a, b){ return (a.ordem || 0) - (b.ordem || 0); });
+  return TIPOS;
+}
+/* Funis que aparecem pra escolher. Desligado some do cadastro mas
+   continua desenhando os negocios que ja estao nele. */
+function tiposAtivos(){
+  var r = [];
+  for(var i=0;i<TIPOS.length;i++) if(TIPOS[i].ativo !== false) r.push(TIPOS[i]);
+  return r.length ? r : TIPOS;
+}
+var TIPOS_DOCS = [];
+function carregarTipos(){
+  if(!FB_ON || !AUTH_OK) return Promise.resolve([]);
+  return db.collection("crm_tipos").get().then(function(snap){
+    SYNC.lidas += Math.max(snap.size, 1);
+    var r = [];
+    snap.forEach(function(d){ var o = d.data(); o.id = d.id; if(!o.k) o.k = d.id; r.push(o); });
+    TIPOS_DOCS = r;
+    guardar("tipos", r);
+    aplicarTipos(r);
+    return r;
+  }).catch(function(e){ explicarErro(e); return []; });
+}
+/* Na partida, antes da rede: usa o que ficou guardado da ultima vez.
+   Sem isso a tela pisca com o funil de fabrica e depois troca. */
+function aplicarTiposDoCache(){
+  var c = recuperar("tipos", null);
+  if(c && c.length){ TIPOS_DOCS = c; aplicarTipos(c); }
+}
+
 function souSdr(){   return !!SESSAO && SESSAO.perfil === "sdr"; }
 function souCloser(){ return !!SESSAO && SESSAO.perfil === "closer"; }
 
@@ -1573,6 +1740,7 @@ function motivoBloqueio(colecao, doc){
   }
   if(colecao === "crm_config")  return podeMexerMeta() ? null : "Seu acesso é só de leitura.";
   if(colecao === "crm_acessos") return ehAdmin() ? null : "Só o Admin mexe em acessos.";
+  if(colecao === "crm_tipos")   return ehAdmin() ? null : "Só o Admin mexe nos funis.";
   return "Coleção fora do CRM.";
 }
 
@@ -2065,6 +2233,7 @@ var ABAS = [
   { k:"negocios", rot:"Negócios", ic:"💼" },
   { k:"pessoas",  rot:"Pessoas",  ic:"👥" },
   { k:"painel",   rot:"Painel",   ic:"📊" },
+  { k:"funis",    rot:"Funis",    ic:"🧭", soAdmin:true },
   { k:"acessos",  rot:"Acessos",  ic:"🔑", soAdmin:true },
   // Fica por ultimo de proposito: e a aba que se le uma vez, nao todo dia.
   { k:"tutorial", rot:"Tutorial", ic:"📖" }
@@ -2073,7 +2242,7 @@ var ABAS = [
 function redesenhar(){
   if(!SESSAO){ pintarGate(); return; }
   ROTA = lerRota();
-  if(ROTA.tela === "acessos" && !ehAdmin()) ROTA.tela = (PERM && PERM.home) || "hoje";
+  if((ROTA.tela === "acessos" || ROTA.tela === "funis") && !ehAdmin()) ROTA.tela = (PERM && PERM.home) || "hoje";
   if(!TELAS[ROTA.tela]) ROTA.tela = (PERM && PERM.home) || "hoje";
 
   DEPOIS = [];
@@ -2467,11 +2636,13 @@ function boot(){
         document.getElementById('app').hidden = false;
         pintarCabecalho();
         carregarCache();
+        aplicarTiposDoCache();
         if(!location.hash) location.hash = "#/" + ((PERM && PERM.home) || "hoje");
         redesenhar();
         // Revalida contra a lista de acessos. Lista VAZIA não derruba
         // ninguém: mantém a sessão e avisa. Derrubar o time por causa de
         // um erro de leitura é pior que o risco que evita.
+        carregarTipos().then(function(tp){ if(tp.length) redesenhar(); });
         carregarAcessos().then(function(acc){
           if(!acc.length){
             if(!SESSAO.recuperacao) avisoBarra("Não consegui ler a lista de acessos agora. Você continua dentro com o perfil da última vez.");
@@ -2871,6 +3042,26 @@ var AJUDA = {
        "de um mês pro outro costuma ser sinal de lead passado cru."
   },
 
+  funis: {
+    t: "Funis",
+    x: "Cada tipo de negócio tem o funil dele, com etapas, prazos e chances próprios.\n\n" +
+       "A casa começou com dois, agência e patrocínio, mas você pode criar quantos precisar. " +
+       "Funil novo já nasce aparecendo no cadastro, no Funil, na fila do Hoje e no Painel.\n\n" +
+       "Desligar um funil tira ele da lista de escolha, mas não some com os negócios que já estão " +
+       "nele: eles continuam sendo trabalhados normalmente."
+  },
+  dinheiro_funil: {
+    t: "O dinheiro do funil",
+    x: "A única escolha do funil que não dá pra desfazer.\n\n" +
+       "Se repete todo mês: mensalidade, tipo o fee de agência. O sistema guarda o valor por mês " +
+       "e multiplica pelos meses quando precisa do contrato inteiro.\n\n" +
+       "Entra uma vez: valor cheio, tipo cota de patrocínio.\n\n" +
+       "Ela decide ONDE o valor fica guardado dentro de cada negócio. Depois que o primeiro negócio " +
+       "entrar no funil, trocar faria todos eles procurarem dinheiro no lugar errado e aparecerem " +
+       "valendo zero, então o sistema tranca a escolha.\n\n" +
+       "Em lugar nenhum do CRM um valor por mês é somado com um valor de uma vez."
+  },
+
   /* ---------- acessos ---------- */
   perfis: {
     t: "Perfis de acesso",
@@ -3262,7 +3453,7 @@ function hjIcone(it){
 // Os dois nunca viram o mesmo numero.
 function hjValor(n){
   if(!n) return "";
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var m = mrrDe(n);
     return m > 0 ? brl(m) + "/mês" : "valor a definir";
   }
@@ -3762,7 +3953,7 @@ ACOES.hjResgate = function(){
    O bloco que o vendedor cola no grupo do WhatsApp às 18h.
    --------------------------------------------------------------------- */
 function hjDescricaoValor(n){
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var mrr = mrrDe(n);
     var meses = (n.ag && n.ag.meses) || 0;
     return "agência, " + brl(mrr) + "/mês" + (meses ? " por " + meses + " meses" : " por prazo indeterminado");
@@ -3939,10 +4130,15 @@ function fnIdxNoFunil(n){
   return -1;
 }
 
+/* Qual funil esta aberto. Antes isso tinha os dois nomes escritos na
+   mao, e funil criado pela casa nunca abriria por mais que a aba
+   existisse. Agora vale qualquer chave que tenha etapas. */
 function fnFunilAtual(){
   var k = ROTA.id;
-  if(k !== "agencia" && k !== "patrocinio") k = recuperar("funilAberto", "agencia");
-  return FUNIL[k] ? k : "agencia";
+  if(!k || !FUNIL[k]) k = recuperar("funilAberto", "");
+  if(k && FUNIL[k]) return k;
+  var ativos = tiposAtivos();
+  return (ativos[0] && ativos[0].k) || TIPOS[0].k;
 }
 function fnCor(t){
   return t === "vermelho" ? "var(--red)"
@@ -3992,7 +4188,7 @@ function fnSelo(n){
 /* Valor heroi. Agencia mostra o que entra POR MES, patrocinio mostra a
    cota inteira. Sao grandezas diferentes e nunca viram o mesmo numero. */
 function fnValorHeroi(n){
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var m = mrrDe(n);
     return m > 0 ? brl(m) + "/mês" : "";
   }
@@ -4001,7 +4197,7 @@ function fnValorHeroi(n){
 }
 /* Linha de apoio: o contrato inteiro na agencia, a edicao no patrocinio. */
 function fnApoio(n){
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var m = mrrDe(n);
     if(m <= 0) return "";
     var meses = (n.ag && n.ag.meses) || 0;
@@ -4049,7 +4245,7 @@ function cardNegocio(n, ctx){
   var foraDoFunil = fnIdxNoFunil(n) < 0;
   var heroi = fnValorHeroi(n);
   var apoio = fnApoio(n);
-  var permuta = (n.tipo === "patrocinio" && n.pt && n.pt.permuta) ? n.pt.permuta : 0;
+  var permuta = (ehUnico(n) && n.pt && n.pt.permuta) ? n.pt.permuta : 0;
 
   var abre = ctx === "kanban"
     ? 'data-a="funilMover" data-id="' + esc(n.id) + '"'
@@ -4129,13 +4325,26 @@ function fnFechadosMes(){
   for(var i=0;i<ns.length;i++){
     var n = ns[i];
     if(n.status !== "ganho" || mesDe(n.fechadoEm) !== ym) continue;
-    if(n.tipo === "agencia"){ r.agN++; r.agMrr += mrrDe(n); }
+    if(ehRecorrente(n)){ r.agN++; r.agMrr += mrrDe(n); }
     else { r.ptN++; r.ptValor += (n.pt && n.pt.valor) || 0; }
   }
   return r;
 }
+/* Uma aba por funil ativo, mais o funil aberto ainda que desligado: sair
+   de um funil que a casa desligou nao pode deixar a pessoa presa numa
+   tela sem aba nenhuma acesa. */
+function fnAbasDeFunil(k){
+  var ativos = tiposAtivos(), h = "", i, vistos = [];
+  for(i=0;i<ativos.length;i++) vistos.push(ativos[i].k);
+  if(vistos.indexOf(k) < 0){ var atual = tipoPorK(k); if(atual) ativos = [atual].concat(ativos); }
+  for(i=0;i<ativos.length;i++){
+    h += '<button class="pill' + (k === ativos[i].k ? " on" : "") + '" data-a="funilTrocar" data-k="' +
+         esc(ativos[i].k) + '">' + esc(ativos[i].rot) + '</button>';
+  }
+  return h;
+}
 function fnFaixaTotais(k){
-  var a = fnTotais("agencia"), p = fnTotais("patrocinio"), fe = fnFechadosMes();
+  var fe = fnFechadosMes();
   // Funil com negocio mas sem nenhum valor preenchido mostra "valor a
   // definir", nunca R$ 0: "R$ 0 em 5 negócios" parece defeito de conta e
   // faz duvidar de todo o resto da tela. Com zero negocios, R$ 0 é a
@@ -4149,13 +4358,19 @@ function fnFaixaTotais(k){
       <div class="kpi-s">${sub}</div>
     </button>`;
   }
+  /* Um bloco por funil ativo. Cada um fala a unidade dele: funil de
+     mensalidade mostra o MRR embaixo, funil de valor unico nao mostra,
+     porque MRR de cota nao existe. */
+  var blocos = "", ativos = tiposAtivos(), z;
+  for(z=0;z<ativos.length;z++){
+    var tp = ativos[z], tot = fnTotais(tp.k);
+    var sub = esc(fnPlural(tot.n, "negócio", "negócios"));
+    if(tp.dinheiro === "recorrente" && tot.mrr) sub += ", " + esc(brl(tot.mrr)) + "/mês de MRR";
+    if(tot.congelados) sub += "<br>" + tot.congelados + " congelado" + (tot.congelados > 1 ? "s" : "");
+    blocos += bloco(tp.k, tot, esc(tp.rot) + " em aberto", sub);
+  }
   return `<div class="kpis">
-    ${bloco("agencia", a, "Agência em aberto (contrato inteiro)",
-        esc(fnPlural(a.n, "negócio", "negócios")) + (a.mrr ? ", " + esc(brl(a.mrr)) + "/mês de MRR" : "") +
-        (a.congelados ? "<br>" + a.congelados + " congelado" + (a.congelados > 1 ? "s" : "") : ""))}
-    ${bloco("patrocinio", p, "Patrocínio em aberto",
-        esc(fnPlural(p.n, "negócio", "negócios")) + " em cotas" +
-        (p.congelados ? "<br>" + p.congelados + " congelado" + (p.congelados > 1 ? "s" : "") : ""))}
+    ${blocos}
     <div class="kpi" style="opacity:.85">
       <div class="kpi-l">Fechados em ${esc(mesBR(mesAtual()))}</div>
       <div class="kpi-s" style="margin-top:2px;font-size:12.5px;color:var(--text2)">
@@ -4179,7 +4394,7 @@ function fnEdicoesViradas(){
     var ed = EDICOES[i];
     if(ed.dataEvento >= hoje) continue;
     var abertos = lista("negocios").filter(function(n){
-      return n.status === "aberto" && n.tipo === "patrocinio" && n.pt && n.pt.edicao === ed.k;
+      return n.status === "aberto" && ehUnico(n) && n.pt && n.pt.edicao === ed.k;
     });
     if(abertos.length) r.push({ ed:ed, abertos:abertos });
   }
@@ -4219,8 +4434,7 @@ function fnFaixaVirada(){
 TELAS.funil = function(){
   var k = fnFunilAtual();
   var f = FUNIL[k] || [];
-  var tipo = null;
-  for(var t=0;t<TIPOS.length;t++) if(TIPOS[t].k === k) tipo = TIPOS[t];
+  var tipo = tipoPorK(k);
 
   // Agrupa por INDICE de estagio, nao pela chave crua: negocio com
   // estagio de outro funil cairia fora de todas as colunas e sumiria da
@@ -4259,8 +4473,7 @@ TELAS.funil = function(){
         senão fechar um negócio apagaria em que estágio ele morreu.</div>
     </div>
     <div class="pills">
-      <button class="pill${k === "agencia" ? " on" : ""}" data-a="funilTrocar" data-k="agencia">Agência</button>
-      <button class="pill${k === "patrocinio" ? " on" : ""}" data-a="funilTrocar" data-k="patrocinio">Patrocínio</button>
+      ${fnAbasDeFunil(k)}
       ${bloqNovo
         ? '<span style="display:flex;flex-direction:column;gap:3px;align-items:flex-start">' +
             '<button class="btn btn-sm" disabled>+ Negócio</button>' +
@@ -4438,7 +4651,7 @@ function abrirFolhaEstagio(id){
 
   var corpo = `<div class="form">
     <div class="tiny muted">${esc(n.empresa || "")} ${n.titulo ? "&middot; " + esc(n.titulo) : ""}<br>
-      Funil de ${esc(n.tipo === "agencia" ? "agência" : "patrocínio")}, ${f.length} estágios.
+      Funil de ${esc(rotTipo(n.tipo))}, ${f.length} estágios.
       ${esc(porQue(n))}</div>
     ${linhas}
     ${motivo ? '<div class="tiny" style="color:var(--text3)">' + esc(motivo) + '</div>' : ''}
@@ -4523,9 +4736,14 @@ function fnPasso2(id, novoK){
    por cima da regra, e é justamente onde o valor chutado entra e envenena
    a previsao do mes. Antes disso o valor é opcional de proposito. */
 function fnGateProposta(n, iNovo){
-  if(n.tipo !== "agencia") return "";
-  var iProp = 0, f = FUNIL.agencia;
-  for(var i=0;i<f.length;i++) if(f[i].k === "ag_proposta") iProp = i;
+  /* Vale pra todo funil de mensalidade, nao so pro de agencia: o que a
+     regra protege e a previsao do mes, e ela sofre igual com qualquer
+     fee chutado. O ponto de corte e a primeira etapa marcada como
+     compromisso, ou, quando nao houver nenhuma, a metade do funil. */
+  if(!ehRecorrente(n)) return "";
+  var f = FUNIL[n.tipo] || [], iProp = -1, i;
+  for(i=0;i<f.length;i++) if(f[i].compromisso){ iProp = i; break; }
+  if(iProp < 0) iProp = Math.floor(f.length / 2);
   if(iNovo < iProp) return "";
 
   var ag = n.ag || {};
@@ -4601,7 +4819,7 @@ ACOES.funilSalvarEstagio = function(el){
   // que depois cai na primeira coluna com o selo de estagio fora do funil
   // e ninguem sabe de onde veio.
   if(iNovo < 0){
-    ruim("Esse estágio não existe no funil de " + (n.tipo === "agencia" ? "agência" : "patrocínio") + ".");
+    ruim("Esse estágio não existe no funil de " + rotTipo(n.tipo) + ".");
     return;
   }
   var eNovo = f[iNovo] || { rot:"" };
@@ -4721,7 +4939,7 @@ function fnFolhaVirada(edK){
   var motivo = motivoBloqueio("crm_negocios");
 
   var abertos = lista("negocios").filter(function(n){
-    return n.status === "aberto" && n.tipo === "patrocinio" && n.pt && n.pt.edicao === edK;
+    return n.status === "aberto" && ehUnico(n) && n.pt && n.pt.edicao === edK;
   });
   var passou = [], mapeados = [], i;
   for(i=0;i<abertos.length;i++){
@@ -4862,7 +5080,11 @@ function fnFecharPerdido(id, edK, obs, txtIndicador){
       negocioTitulo: n.titulo || "",
       feita: false,
       criadoEm: hojeISO(),
-      criadoPor: (SESSAO && SESSAO.nome) || "",
+      captouId: n.captouId || "", captouNome: n.captouNome || "",
+    fechaId: n.fechaId || "", fechaNome: n.fechaNome || "",
+    passadoEm: (n.fechaId || n.fechaNome) ? hojeISO() : "",
+    passadoNoEstagio: (n.fechaId || n.fechaNome) ? "pt_mapeado" : "",
+    criadoPor: (SESSAO && SESSAO.nome) || "",
       arquivado: false
     }).catch(function(){ /* o negocio ja fechou; falha na tarefa nao vira "não deu pra fechar" */ });
   });
@@ -4906,7 +5128,10 @@ ACOES.funilMigrar = function(el){
     permuta: (n.pt && n.pt.permuta) || 0,
     entregaveis: (n.pt && n.pt.entregaveis) || "",
     quemAprova: (n.pt && n.pt.quemAprova) || "",
-    mesBudget: ""            // budget novo, ciclo novo: a data antiga só atrapalha
+    mesBudget: "",           // budget novo, ciclo novo: a data antiga só atrapalha
+    // Marca a renovacao pra ela NAO entrar no placar de captacao como
+    // se alguem tivesse prospectado um patrocinador que ja era da casa.
+    renovacaoDeId: n.id
   };
   var idDoNovo = idNovo("n");   // nome proprio: "novoId" é a funcao do 02-util e sombrea-la aqui e pedir bug
   var titulo = (n.empresa || "Patrocinio") + " " + edNova.rot;
@@ -4945,6 +5170,10 @@ ACOES.funilMigrar = function(el){
     obs: ("Veio da edição " + ((edVelha && edVelha.rot) || edK) + ". " + (n.obs || "")).trim(),
     busca: chave([n.empresa || "", titulo, n.contatoNome || "", n.indicadorNome || ""].join(" ")),
     criadoEm: hojeISO(),
+    captouId: n.captouId || "", captouNome: n.captouNome || "",
+    fechaId: n.fechaId || "", fechaNome: n.fechaNome || "",
+    passadoEm: (n.fechaId || n.fechaNome) ? hojeISO() : "",
+    passadoNoEstagio: (n.fechaId || n.fechaNome) ? "pt_mapeado" : "",
     criadoPor: (SESSAO && SESSAO.nome) || "",
     arquivado: false
   };
@@ -5072,10 +5301,9 @@ function ngRotEstagio(k){
   }
   return k || "";
 }
-function ngRotTipo(k, longo){
-  for(var i=0;i<TIPOS.length;i++) if(TIPOS[i].k === k) return longo ? TIPOS[i].rotLongo : TIPOS[i].rot;
-  return k || "";
-}
+/* Encaminha pro rotTipo do nucleo. O nome antigo fica porque a tela
+   inteira chama por ele. */
+function ngRotTipo(k, longo){ return rotTipo(k, longo); }
 function ngCorTemp(t){
   return t === "verde" ? "var(--green)" : t === "amarelo" ? "var(--warn)" :
          t === "vermelho" ? "var(--red)" : t === "congelado" ? "var(--blue)" : "var(--text3)";
@@ -5115,7 +5343,7 @@ function ngLerDinheiro(s){
    manda pro fim de qualquer leitura de olho. As outras telas já falavam
    "valor a definir"; a lista era a única que destoava.                  */
 function ngValorTxt(n){
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var m = mrrDe(n);
     return m > 0 ? brl(m) + "/mês" : "valor a definir";
   }
@@ -5503,7 +5731,7 @@ ACOES.ngSalvarRegistro = function(f){
   esquecer("rascunho_" + id);
   if(naFolha) fecharFolha();
 
-  var estagioProposta = n.tipo === "agencia" ? "ag_proposta" : "pt_proposta";
+  var estagioProposta = ehRecorrente(n) ? "ag_proposta" : "pt_proposta";
 
   registrarAtividade(id, { tipo:tipo, texto:texto, quando:quando, prox:prox })
     .then(function(){
@@ -5632,8 +5860,8 @@ TELAS.negocios = function(){
 
   // Os dois funis somam em linhas separadas. Juntar MRR de agência com
   // cota de patrocínio num número só é o invariante 5.
-  var ag = arr.filter(function(n){ return n.tipo === "agencia"; });
-  var pt = arr.filter(function(n){ return n.tipo === "patrocinio"; });
+  var ag = arr.filter(function(n){ return ehRecorrente(n); });
+  var pt = arr.filter(function(n){ return ehUnico(n); });
   var somaAg = 0, somaMrr = 0, somaPt = 0, i;
   for(i=0;i<ag.length;i++){ somaAg += valorRefDe(ag[i]); somaMrr += mrrDe(ag[i]); }
   for(i=0;i<pt.length;i++){ somaPt += valorRefDe(pt[i]); }
@@ -5696,7 +5924,16 @@ TELAS.negocios = function(){
     return h;
   }
 
-  /* DESKTOP: tabela. CELULAR: a mesma lista em cartão, porque tabela com
+  /* Uma celula so, usada na lista. Fora dela o bloco grande do detalhe faz
+   o mesmo trabalho com mais espaco. */
+function ngCelQuemToca(n){
+  var d = donoDe(n);
+  if(d.papel === "time") return '<td><span class="muted cel-sub">o time</span></td>';
+  return '<td><div class="cel-nome truncate" style="max-width:150px">' + esc(d.nome) + '</div>' +
+    '<div class="cel-sub">' + (d.papel === "closer" ? "fechando" : "captando") + '</div></td>';
+}
+
+/* DESKTOP: tabela. CELULAR: a mesma lista em cartão, porque tabela com
      rolagem lateral no celular é onde a pessoa desiste. */
   var linhas = "", n, e, t;
   for(i=0;i<arr.length;i++){
@@ -5712,7 +5949,7 @@ TELAS.negocios = function(){
       // "R$ 0 no contrato" embaixo de "valor a definir" era a mesma
       // mentira escrita duas vezes.
       '<td class="r"><b>' + esc(ngValorTxt(n)) + '</b>' +
-        (n.tipo === "agencia" && valorRefDe(n) > 0
+        (ehRecorrente(n) && valorRefDe(n) > 0
           ? '<div class="cel-sub">' + esc(brl(valorRefDe(n))) + ' no contrato</div>' : '') + '</td>' +
       '<td class="r">' + (n.prevFechamento ? esc(dataCurta(n.prevFechamento)) : '<span class="muted">sem data</span>') +
         (n.prevEstimada ? '<div class="cel-sub">estimada</div>' : '') + '</td>' +
@@ -5722,12 +5959,15 @@ TELAS.negocios = function(){
                                               : "fechado, sem data registrada")) + '</div></td>' +
       '<td><div class="cel-sub">' + esc(n.ultimoToqueEm ? quando(n.ultimoToqueEm) : "nunca") + '</div>' +
         '<div class="truncate cel-sub" style="max-width:220px;color:var(--text2)">' + esc(n.ultimoToqueTxt || "") + '</div></td>' +
+      // Quem toca. Sem esta coluna, so da pra saber de quem e o negocio
+      // abrindo um por um, e a lista deixa de servir pra dividir trabalho.
+      ngCelQuemToca(n) +
     '</tr>';
   }
 
   h += '<div class="tw no-mob"><table class="tb"><thead><tr>' +
       '<th>Empresa</th><th>Título</th><th>Estágio</th><th class="r">Valor</th>' +
-      '<th class="r">Previsão</th><th>Temperatura</th><th>Último toque</th>' +
+      '<th class="r">Previsão</th><th>Temperatura</th><th>Último toque</th><th>Quem toca</th>' +
     '</tr></thead><tbody>' + linhas + '</tbody></table></div>';
 
   var cards = "";
@@ -5772,7 +6012,7 @@ function ngBlocoTopo(n){
   var congelado = n.congeladoAte && n.congeladoAte > hojeISO();
 
   var tags = '<span class="tag tag-lime">' + esc(ngRotTipo(n.tipo)) + '</span>';
-  if(n.tipo === "patrocinio" && n.pt && n.pt.edicao){
+  if(ehUnico(n) && n.pt && n.pt.edicao){
     var ed = edicaoDe(n.pt.edicao);
     if(ed) tags += ' <span class="tag tag-purple">' + esc(ed.rot) + '</span>';
   }
@@ -5796,7 +6036,7 @@ function ngBlocoTopo(n){
   // SPEC (seção 4.1) pede valor opcional até a proposta, e dizer "valor a
   // definir" é a única leitura honesta enquanto ninguém digitou nada.
   var semValor = n.status === "aberto" && valorRefDe(n) <= 0;
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var meses = (n.ag && n.ag.meses) || 0;
     sub = brl(valorRefDe(n)) + (meses ? " em " + meses + " meses" : " em 12 meses (contrato indeterminado, contado como 12)");
   } else {
@@ -5805,7 +6045,7 @@ function ngBlocoTopo(n){
   }
   if(semValor){
     heroi = "valor a definir";
-    sub = n.tipo === "agencia" ? "o fee mensal em R$ ainda não foi preenchido"
+    sub = ehRecorrente(n) ? "o fee mensal em R$ ainda não foi preenchido"
                                : "o valor da cota em R$ ainda não foi preenchido";
   }
   var ponderado = Math.round(valorRefDe(n) * e.p);
@@ -5823,9 +6063,9 @@ function ngBlocoTopo(n){
   /* "pediu 220.000, está em 180.000". É o número que o dono quer ver
      antes de aprovar mais um desconto. */
   var desconto = "";
-  if(n.tipo === "patrocinio" && n.pt && n.pt.valorInicial > 0 && n.pt.valorInicial !== n.pt.valor){
+  if(ehUnico(n) && n.pt && n.pt.valorInicial > 0 && n.pt.valorInicial !== n.pt.valor){
     desconto = ngLinhaDesconto(n.pt.valorInicial, n.pt.valor || 0, "");
-  } else if(n.tipo === "agencia" && n.ag && n.ag.mrrInicial > 0 && n.ag.mrrInicial !== n.ag.mrr){
+  } else if(ehRecorrente(n) && n.ag && n.ag.mrrInicial > 0 && n.ag.mrrInicial !== n.ag.mrr){
     desconto = ngLinhaDesconto(n.ag.mrrInicial, n.ag.mrr || 0, "/mês");
   }
 
@@ -5848,7 +6088,7 @@ function ngBlocoTopo(n){
       (congelado
         ? '<button class="btn" data-a="ngDescongelar" data-id="' + esc(n.id) + '"' + (bloq?' disabled':'') + '>Descongelar</button>'
         : '<button class="btn" data-a="ngCongelar" data-id="' + esc(n.id) + '"' + (bloq?' disabled':'') + '>❄ Congelar</button>');
-  } else if(n.status === "ganho" && n.tipo === "agencia"){
+  } else if(n.status === "ganho" && ehRecorrente(n)){
     acoes =
       '<button class="btn btn-primary" data-a="ngRenovar" data-id="' + esc(n.id) + '"' + (bloq?' disabled':'') + '>Renovar contrato</button>' +
       '<button class="btn" data-a="ngEncerrar" data-id="' + esc(n.id) + '"' + (bloq?' disabled':'') + '>Encerrar contrato</button>';
@@ -5972,9 +6212,9 @@ function ngBlocoContato(n){
         (n.contatoId ? '<button class="btn btn-sm btn-ghost" data-a="ir" data-r="pessoa/' + esc(n.contatoId) + '">Ver ficha</button>' : '') +
       '</div>';
   }
-  if(n.tipo === "agencia" && n.ag && n.ag.quemDecide)
+  if(ehRecorrente(n) && n.ag && n.ag.quemDecide)
     h += '<div class="tiny muted" style="margin-top:10px">Quem bate o martelo: ' + esc(n.ag.quemDecide) + '</div>';
-  if(n.tipo === "patrocinio" && n.pt && n.pt.quemAprova)
+  if(ehUnico(n) && n.pt && n.pt.quemAprova)
     h += '<div class="tiny muted" style="margin-top:10px">Quem aprova a verba: ' + esc(n.pt.quemAprova) + '</div>';
   return h + '</div>';
 }
@@ -6119,7 +6359,7 @@ function ngBlocoValores(n){
         (n.obs ? "Editar a observação" : "Anotar") + '</button>' +
     '</div>';
 
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var a = n.ag || {};
     h += lin("Fee mensal", brl(a.mrr||0) + "/mês", a.mrrInicial && a.mrrInicial !== a.mrr ? "pedido inicial de " + brl(a.mrrInicial) + "/mês" : "");
     if(a.verbaMidia > 0){
@@ -6580,7 +6820,7 @@ ACOES.ngGanho = function(el){
   if(!n) return;
   var corpo = '<form class="form" id="ngF" data-a="ngSalvarGanho" data-id="' + esc(n.id) + '">';
 
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var a = n.ag || {};
     corpo +=
       '<div class="grid2">' +
@@ -6639,7 +6879,7 @@ ACOES.ngSalvarGanho = function(f){
              proxTipo:"", proxData:"", proxTexto:"", proxHora:"", congeladoAte:"" };
   var fim = "";
 
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var mrr   = ngLerDinheiro((document.getElementById('ngGmrr')||{}).value);
     var ini   = (document.getElementById('ngGini')||{}).value || "";
     var meses = parseInt((document.getElementById('ngGmeses')||{}).value, 10) || 0;
@@ -6972,9 +7212,19 @@ ACOES.ngSalvarEncerrar = function(f){
    não existir; encerrar e recriar sem o vinculo mostraria uma perda de
    R$ 3.500/mês que nunca aconteceu.
    --------------------------------------------------------------------- */
+/* Onde uma renovacao nasce: na ULTIMA etapa do funil. O contrato ja
+   existe e a conversa e sobre continuar, nao sobre apresentar a casa.
+   Escrito assim em vez de "ag_negociacao" pra funil de mensalidade
+   criado pela casa tambem saber renovar. */
+function ngEstagioDeRenovacao(tipoK){
+  var f = FUNIL[tipoK] || [];
+  return f.length ? f[f.length - 1].k : "";
+}
 ACOES.ngRenovar = function(el){
   var n = achar("negocios", el.getAttribute('data-id'));
-  if(!n || n.tipo !== "agencia") return;
+  // Vale pra qualquer funil de mensalidade. Renovacao existe onde existe
+  // contrato que vence, e isso e do formato do dinheiro, nao do nome.
+  if(!n || !ehRecorrente(n)) return;
   var a = n.ag || {};
   var inicio = a.fimContrato ? somaDias(a.fimContrato, 1) : hojeISO();
   // O novo nasce em Negociação: o contrato já existe e a conversa é sobre
@@ -6998,7 +7248,7 @@ ACOES.ngRenovar = function(el){
         '<div class="fld"><label>Previsão de fechar</label>' +
           '<input class="inp" type="date" id="ngRprev" value="' + esc(a.fimContrato || somaDias(hojeISO(), CICLO_MEDIANO.agencia)) + '"></div>' +
       '</div>' +
-      blocoProxPasso("rn", { tipo:"agencia", estagio:"ag_negociacao" }, true) +
+      blocoProxPasso("rn", { tipo:n.tipo, estagio:ngEstagioDeRenovacao(n.tipo) }, true) +
       '<div class="fld"><div class="err" id="ngErr"></div></div>' +
     '</form>',
     '<button class="btn btn-ghost" data-a="fecharFolha">Cancelar</button>' +
@@ -7020,10 +7270,11 @@ ACOES.ngSalvarRenovar = function(f){
   var titulo = String((document.getElementById('ngRtit')||{}).value || ("Renovação " + n.empresa)).slice(0,120);
 
   var novoId = idNovo("n");
+  var estRenov = ngEstagioDeRenovacao(n.tipo);
   var novo = {
-    tipo:"agencia", titulo:titulo, empresa:n.empresa, empresaChave:n.empresaChave || chave(n.empresa),
+    tipo:n.tipo, titulo:titulo, empresa:n.empresa, empresaChave:n.empresaChave || chave(n.empresa),
     contatoId:n.contatoId || "", contatoNome:n.contatoNome || "", contatoTel:n.contatoTel || "",
-    estagio:"ag_negociacao", status:"aberto", origem:"cliente_atual",
+    estagio:estRenov, status:"aberto", origem:"cliente_atual",
     indicadorId:"", indicadorNome:"",
     ag:{ mrr:mrr, mrrInicial:mrr, meses:meses, verbaMidia:a.verbaMidia || 0, pctVerba:a.pctVerba || 0,
          servicos:a.servicos || [], inicioContrato:ini, fimContrato:(meses ? somaDias(ini, meses*30 - 1) : ""),
@@ -7033,12 +7284,15 @@ ACOES.ngSalvarRenovar = function(f){
     proxTipo:prox.proxTipo, proxData:prox.proxData, proxTexto:prox.proxTexto, proxHora:prox.proxHora,
     congeladoAte:"", congeladoMotivo:"", vezesAdiado:0, vezesRemarcouPrev:0,
     ultimoToqueEm:hojeISO(), ultimoToqueTxt:"Renovação aberta a partir do contrato anterior",
-    estagioDesde:hojeISO(), maiorEstagio:idxEstagio({ tipo:"agencia", estagio:"ag_negociacao" }),
+    estagioDesde:hojeISO(), maiorEstagio:idxEstagio({ tipo:n.tipo, estagio:estRenov }),
     motivoPerda:"", motivoPerdaObs:"", fechadoEm:"", encerradoEm:"", motivoEncerramento:"",
     linkProposta:"", obs:n.obs || "",
     busca:chave(n.empresa + " " + titulo + " " + (n.contatoNome || "")),
     criadoEm:hojeISO(), criadoPor:(SESSAO && SESSAO.nome) || "", arquivado:false
   };
+  // Mesmas maos do contrato anterior. Ver herdarQuemToca no 04-core.
+  var maos = herdarQuemToca(n, estRenov), km;
+  for(km in maos) if(Object.prototype.hasOwnProperty.call(maos, km)) novo[km] = maos[km];
   novo.valorRef = valorRefDe(novo);
   fecharFolha();
 
@@ -7066,7 +7320,7 @@ ACOES.ngEditarValores = function(el){
   if(!n) return;
   var corpo = '<form class="form" id="ngF" data-a="ngSalvarValores" data-id="' + esc(n.id) + '">', i;
 
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var a = n.ag || {}, serv = a.servicos || [];
     var chk = "";
     for(i=0;i<SERVICOS.length;i++){
@@ -7136,7 +7390,7 @@ ACOES.ngSalvarValores = function(f){
   if(!n){ fecharFolha(); toast("Esse negócio não está mais neste aparelho.", "bad"); return; }
   var up = {}, i, el;
 
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var a = ngCopia(n.ag);
     var mrr = ngLerDinheiro((document.getElementById('ngVmrr')||{}).value);
     if(!a.mrrInicial && mrr > 0) a.mrrInicial = (n.ag && n.ag.mrr) || mrr;   // só na primeira vez
@@ -7298,7 +7552,7 @@ function rankIndicadores(){
       r.gerado += valorRefDe(n);
       // Recorrente (R$/mês) e cota (R$) andam em colunas separadas e nunca
       // se somam: são unidades diferentes (invariante 5).
-      if(n.tipo === "agencia"){
+      if(ehRecorrente(n)){
         if(n.status === "ganho" && !n.encerradoEm) r.mrrGerado += mrrDe(n);
       } else {
         r.cotaGerada += Math.round((n.pt && n.pt.valor) || 0);
@@ -7472,7 +7726,7 @@ function pesLinhaNegocio(n){
       ${pesTagStatus(n)}
     </div>
     <div style="display:flex;justify-content:space-between;gap:10px;margin-top:9px;align-items:baseline;flex-wrap:wrap">
-      ${v > 0 ? '<span class="num" style="font-size:17px">' + esc(brl(v)) + (n.tipo === "agencia" ? ' <span class="tiny muted">de contrato</span>' : ' <span class="tiny muted">de cota</span>') + '</span>'
+      ${v > 0 ? '<span class="num" style="font-size:17px">' + esc(brl(v)) + (ehRecorrente(n) ? ' <span class="tiny muted">de contrato</span>' : ' <span class="tiny muted">de cota</span>') + '</span>'
               : '<span class="small muted">valor a definir</span>'}
       <span class="tiny muted">${esc(pesResultado(n))}</span>
     </div>
@@ -8371,7 +8625,7 @@ function numerosDoMes(ym){
     /* CARTEIRA ATIVA. Contrato recorrente não termina por data, termina
        por evento: filtrar por vigência apaga o cliente que continua
        pagando depois do fim do papel. Por isso o corte é encerradoEm. */
-    if(n.tipo === "agencia" && n.status === "ganho" && !n.encerradoEm){
+    if(ehRecorrente(n) && n.status === "ganho" && !n.encerradoEm){
       r.carteira      += mrrDe(n);
       r.carteiraFee   += (n.ag && n.ag.mrr) || 0;
       r.verbaSobGestao += (n.ag && n.ag.verbaMidia) || 0;
@@ -8385,13 +8639,13 @@ function numerosDoMes(ym){
       r.fechadoItens.push(n);
       var t = r.porTipo[n.tipo];
       if(t){ t.fechado += v; t.nFechado++; }
-      if(n.tipo === "agencia"){ r.novoMrr += mrrDe(n); r.novoMrrItens.push(n); }
+      if(ehRecorrente(n)){ r.novoMrr += mrrDe(n); r.novoMrrItens.push(n); }
     }
 
     /* MRR PERDIDO NO MÊS. "renovado" fica de fora: renovação encerra o
        contrato velho e abre um novo, e contar isso como perda mostraria
        uma queda de R$ 3.500/mês que não aconteceu. */
-    if(n.tipo === "agencia" && n.status === "encerrado" &&
+    if(ehRecorrente(n) && n.status === "encerrado" &&
        mesDe(n.encerradoEm) === ym && n.motivoEncerramento !== "renovado"){
       var m = mrrDe(n);
       r.mrrPerdido += m;
@@ -8409,7 +8663,7 @@ function numerosDoMes(ym){
       r.altaChance.push(n);
       var tt = r.porTipo[n.tipo];
       if(tt){ tt.alta += va; tt.nAlta++; }
-      if(n.tipo === "agencia") r.mrrAlta += mrrDe(n);
+      if(ehRecorrente(n)) r.mrrAlta += mrrDe(n);
       if(riscoAlto(n)){
         r.riscoItens.push(n);
         if(tt) tt.risco += va;
@@ -9114,6 +9368,7 @@ function pnlCaptacao(ym){
     if(n.arquivado) continue;
     if(mesDe(n.criadoEm) !== ym) continue;
     if(!n.captouNome) continue;
+    if(ehRenovacao(n)) continue;   // renovar nao e captar, ver ehRenovacao
     d = slot(n.captouNome);
     d.captados++;
     if(n.passadoEm){
@@ -9235,7 +9490,7 @@ function pnlBlocoGanhosPerdas(){
 function pnlConversaoHTML(tipo, fechados){
   var linhas = pnlConversao(tipo, fechados), i, tem = false;
   for(i = 0; i < linhas.length; i++) if(linhas[i].base) tem = true;
-  var rot = tipo === "agencia" ? "Agencia" : "Patrocinio";
+  var rot = rotTipo(tipo);
   if(!tem){
     return '<div class="h3" style="margin-top:18px">Conversão por estágio, ' + esc(rot) + '</div>' +
            '<div class="tiny muted">Nenhum negócio de ' + esc(rot.toLowerCase()) +
@@ -9295,7 +9550,7 @@ function pnlTicketHTML(G){
   var porEd = {};
   for(i = 0; i < G.ganhos.length; i++){
     n = G.ganhos[i];
-    if(n.tipo === "agencia"){
+    if(ehRecorrente(n)){
       ag.push(valorRefDe(n));
       fee.push(mrrDe(n));
       // meses 0 = indeterminado, e valorRefDe já trata como 12. A duração
@@ -9497,7 +9752,7 @@ function pnlListaDef(qual, el){
                itens:N.altaChance, modo:"valor" };
     case "altaAg":
       return { t:"Alta chance de agência, MRR em jogo", sub:"R$/mês que entra se estes fecharem.",
-               itens:pnlFiltra(N.altaChance, function(n){ return n.tipo === "agencia"; }), modo:"mrr" };
+               itens:pnlFiltra(N.altaChance, function(n){ return ehRecorrente(n); }), modo:"mrr" };
     case "provavel":
       return { t:"Provável de " + mesNome, sub:"Piso mais alta chance. " + notaTotal,
                itens:N.fechadoItens.concat(N.altaChance), modo:"valor" };
@@ -9510,17 +9765,17 @@ function pnlListaDef(qual, el){
                sub:"Estão dentro do Provável, mas apoiados em negócio que ninguém toca. A distância entre Provável e Sem risco alto é exatamente isto.",
                itens:N.riscoItens, modo:"valor" };
     case "fechadoT":
-      return { t:"Fechado em " + mesNome + ", " + (tipo === "agencia" ? "agencia" : "patrocinio"),
+      return { t:"Fechado em " + mesNome + ", " + rotTipo(tipo),
                sub:"", itens:pnlFiltra(N.fechadoItens, function(n){ return n.tipo === tipo; }), modo:"valor" };
     case "altaT":
-      return { t:"Alta chance de " + mesNome + ", " + (tipo === "agencia" ? "agencia" : "patrocinio"),
+      return { t:"Alta chance de " + mesNome + ", " + rotTipo(tipo),
                sub:"", itens:pnlFiltra(N.altaChance, function(n){ return n.tipo === tipo; }), modo:"valor" };
     case "provavelT":
-      return { t:"Provável de " + mesNome + ", " + (tipo === "agencia" ? "agencia" : "patrocinio"),
+      return { t:"Provável de " + mesNome + ", " + rotTipo(tipo),
                sub:"Fechado mais alta chance do funil.",
                itens:pnlFiltra(N.fechadoItens.concat(N.altaChance), function(n){ return n.tipo === tipo; }), modo:"valor" };
     case "limpoT":
-      return { t:"Sem risco alto em " + mesNome + ", " + (tipo === "agencia" ? "agencia" : "patrocinio"),
+      return { t:"Sem risco alto em " + mesNome + ", " + rotTipo(tipo),
                sub:"", itens:pnlFiltra(N.fechadoItens.concat(N.altaChance), function(n){
                  return n.tipo === tipo && !(n.status === "aberto" && riscoAlto(n));
                }), modo:"valor" };
@@ -9568,7 +9823,7 @@ function pnlListaDef(qual, el){
     case "ticketAg":
       G = pnlGanhosPerdas();
       return { t:"Contratos de agência ganhos, 12 meses", sub:"Valor total de contrato, em R$.",
-               itens:pnlFiltra(G.ganhos, function(n){ return n.tipo === "agencia"; }), modo:"valor" };
+               itens:pnlFiltra(G.ganhos, function(n){ return ehRecorrente(n); }), modo:"valor" };
 
     case "edVendido":
       var ev = pnlEdicao(k);
@@ -9601,7 +9856,7 @@ function pnlSub(n){
       if(MOTIVOS_ENCERRAMENTO[i].k === n.motivoEncerramento) me = MOTIVOS_ENCERRAMENTO[i].rot;
     p.push("Encerrado em " + dataBR(n.encerradoEm) + (me ? ", " + me.toLowerCase() : ""));
   }
-  if(n.tipo === "patrocinio" && n.pt && n.pt.edicao){
+  if(ehUnico(n) && n.pt && n.pt.edicao){
     var ed = edicaoDe(n.pt.edicao);
     if(ed) p.push(ed.rot);
   }
@@ -9786,7 +10041,7 @@ function cadCorTemp(t){
 // MRR de agencia com valor de patrocinio (invariante 5).
 function cadValorCurto(n){
   if(!n) return "";
-  if(n.tipo === "agencia"){
+  if(ehRecorrente(n)){
     var m = mrrDe(n);
     return m > 0 ? brl(m) + "/mês" : "valor a definir";
   }
@@ -10227,8 +10482,9 @@ function nnPintarTipos(){
   var w = document.getElementById('nnTipos');
   if(!w || !NOVO) return;
   var h = "";
-  for(var i=0;i<TIPOS.length;i++){
-    var t = TIPOS[i], on = (NOVO.tipo === t.k);
+  var ativos = tiposAtivos();
+  for(var i=0;i<ativos.length;i++){
+    var t = ativos[i], on = (NOVO.tipo === t.k);
     h += '<button type="button" class="btn btn-lg btn-block' + (on ? ' btn-primary' : '') + '" ' +
          'data-a="nnTipo" data-k="' + t.k + '">' + t.ic + ' ' + esc(t.rot) + '</button>';
   }
@@ -10257,7 +10513,7 @@ function nnPintarPrev(){
   // Enquanto for estimada, o negocio fica fora de alta chance de proposito.
   el.innerHTML = 'Previsão de fechamento: <b>' + dataBR(d) + '</b> ' +
     '<span class="muted">(data estimada, ' + dias + ' dias, que é o ciclo mediano de ' +
-    esc(NOVO.tipo === "agencia" ? "agência" : "patrocínio") + ')</span>. ' +
+    esc(rotTipo(NOVO.tipo)) + ')</span>. ' +
     'Enquanto for estimada esse negócio não entra em alta chance. Ajuste na tela do negócio.';
 }
 
@@ -10370,7 +10626,7 @@ function nnTituloAuto(){
   var el = document.getElementById('nnEmpresa');
   var emp = el ? el.value.trim() : "";
   var t = null;
-  for(var i=0;i<TIPOS.length;i++) if(TIPOS[i].k === (NOVO && NOVO.tipo)) t = TIPOS[i];
+  t = tipoPorK(NOVO && NOVO.tipo);
   var ano = new Date().getFullYear();
   var s = (emp ? emp + ", " : "") + (t ? t.rotLongo.toLowerCase() : "negocio") + " " + ano;
   return s.slice(0,120);
@@ -10496,18 +10752,22 @@ ACOES.salvarNovoNegocio = function(form){
     criadoEm:hoje, criadoPor:(SESSAO && SESSAO.nome) || "", arquivado:false
   };
 
-  if(tipo === "agencia"){
+  if(dinheiroDe(tipo) === "recorrente"){
     n.ag = { mrr:0, mrrInicial:0, meses:0, verbaMidia:0, pctVerba:0, servicos:[],
              inicioContrato:"", fimContrato:"", renovacaoDeId:"",
              quemDecide:"", faixaVerba:"" };
     n.pt = null;
   } else {
     // A edicao nasce na primeira que ainda nao passou do corte comercial.
+    // Funil novo do tipo "entra uma vez" nao tem edicao nenhuma: edicao e
+    // corte comercial sao do festival, nao do formato de dinheiro.
     // Cota sem edicao nao aparece na cobertura de edicao nenhuma, e
     // ninguem volta pra preencher campo que a tela nao cobra.
     var ed = "";
-    for(var i=0;i<EDICOES.length;i++){
-      if(EDICOES[i].corteComercial >= hoje){ ed = EDICOES[i].k; break; }
+    if(tipo === "patrocinio"){
+      for(var i=0;i<EDICOES.length;i++){
+        if(EDICOES[i].corteComercial >= hoje){ ed = EDICOES[i].k; break; }
+      }
     }
     n.pt = { edicao:ed, cota:"", valor:0, valorInicial:0, permuta:0,
              entregaveis:"", quemAprova:"", mesBudget:"" };
@@ -10790,11 +11050,11 @@ function msgMapa(n, c, nome){
   if(n){
     mapa.empresa = n.empresa || mapa.empresa;
     if(n.indicadorNome) mapa.indicador = cadPrimeiroNome(n.indicadorNome);
-    if(n.tipo === "agencia" && n.ag){
+    if(ehRecorrente(n) && n.ag){
       if(mrrDe(n) > 0) mapa.mrr = brl(mrrDe(n));
       if(n.ag.meses > 0) mapa.meses = String(n.ag.meses);   // 0 = indeterminado, vira campo
     }
-    if(n.tipo === "patrocinio" && n.pt){
+    if(ehUnico(n) && n.pt){
       if(n.pt.cota) mapa.cota = n.pt.cota;
       if(n.pt.valor > 0) mapa.valor = brl(n.pt.valor);
       if(n.pt.entregaveis) mapa.entregaveis = String(n.pt.entregaveis).split("\n").filter(Boolean).join(", ");
@@ -11990,7 +12250,8 @@ TELAS.tutorial = function(){
     'R$ 3.000 de cota. Por isso o CRM mostra os dois lado a lado, sempre separados, com a unidade escrita: ' +
     '<span class="mono-num">/mês</span> num, valor cheio no outro.</p>' +
     '<p class="tiny" style="color:var(--text2)">Cada tipo tem o funil dele, com etapas e prazos próprios, ' +
-    'porque fechar uma cota leva meses e fechar um fee leva semanas.</p>',
+    'porque fechar uma cota leva meses e fechar um fee leva semanas. E esses dois não são os únicos: ' +
+    'na aba <b>Funis</b>, quem é Admin cria quantos precisar, cada um com as etapas do próprio negócio.</p>',
     tuFigFunis());
 
   h += tuPasso(4, "Cadastrar um negócio",
@@ -12021,7 +12282,10 @@ TELAS.tutorial = function(){
     'há mais tempo do que a etapa aguenta. Vem ordenado: o mais urgente e mais caro primeiro.</p>',
     tuFigCard());
 
-  h += tuPasso(8, "Indicação, que é de onde vem a casa",
+  h += tuPasso(8, "De onde o negócio veio, e quem indicou",
+    '<p>Todo negócio tem uma <b>origem</b>. As duas que mais importam aqui são ' +
+    '<b>indicação</b>, que é alguém apresentando o cliente, e <b>prospecção nossa</b>, ' +
+    'que é a captação ativa. Elas convivem, e o Painel compara as duas.</p>' +
     '<p>Quando um negócio nasce de indicação, anote <b>quem indicou</b>. Não é burocracia. ' +
     'É o que faz a aba <b>Pessoas</b> responder quem realmente traz dinheiro pra dentro, ' +
     'e quem anda sumido e merece uma ligação.</p>' +
@@ -12037,7 +12301,7 @@ TELAS.tutorial = function(){
     'o CRM lista os valores um a um, porque média de dois números engana.</p>');
 
   h += tuPasso(10, "Acessos: quem entra e com que poder",
-    '<p>Só quem é Admin vê essa aba. <b>Admin</b> mexe em tudo e cria gente. ' +
+    '<p>Só quem é Admin vê Acessos e Funis. <b>Admin</b> mexe em tudo, cria gente e cria funis. ' +
     '<b>SDR</b> e <b>Closer</b> operam os negócios com exatamente o mesmo poder, e a diferença ' +
     'entre os dois é o papel, não a permissão. <b>Gestor</b> vê tudo mas só registra observação.</p>' +
     '<p>Leitura é o perfil pra quem quer acompanhar sem risco de mexer sem querer. ' +
@@ -12063,6 +12327,329 @@ TELAS.tutorial = function(){
 
   return h;
 };
+
+/* ============ 13-funis ============ */
+/* =====================================================================
+   CRM LIME - FUNIS
+
+   A tela onde a casa cria os proprios funis. So Admin entra.
+
+   POR QUE ISSO EXISTE
+   O CRM comecou com dois funis escritos no codigo, agencia e patrocinio,
+   porque eram os dois negocios da casa. Mas negocio novo aparece, e
+   ate aqui cada um custava mexer no codigo e publicar de novo. Agora
+   custa preencher um formulario.
+
+   A UNICA COISA QUE NAO DA PRA DESFAZER
+   Escolher se o dinheiro do funil se repete todo mes ou entra uma vez.
+   Essa escolha decide ONDE os valores ficam guardados dentro de cada
+   negocio. Depois que o primeiro negocio entrar no funil, trocar isso
+   faria todos eles procurarem dinheiro no lugar errado e aparecerem
+   valendo zero. Por isso a tela pergunta uma vez, explica, e tranca.
+
+   ESTAGIO NAO SE APAGA DE VERDADE
+   Quem apaga um estagio que tem negocio dentro deixa esses negocios sem
+   coluna. O codigo do funil ja tem rede pra isso (cai na primeira
+   coluna com selo de aviso), mas rede nao e lugar de morar: aqui a tela
+   avisa antes e pede que a pessoa mova os negocios primeiro.
+   ===================================================================== */
+
+/* Chave de estagio a partir do rotulo, sempre com o prefixo do funil.
+   Prefixo evita o "contato" do funil novo colidir com o "contato" do
+   funil de agencia, o que faria um negocio pular de funil sozinho. */
+function fnChaveEstagio(tipoK, rot, jaUsadas){
+  var base = chave(rot).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 24);
+  if(!base) base = "etapa";
+  var pref = String(tipoK).slice(0, 12) + "_";
+  var k = pref + base, n = 2;
+  while(jaUsadas && jaUsadas.indexOf(k) > -1){ k = pref + base + "_" + n; n++; }
+  return k;
+}
+function fnChaveTipo(rot, jaUsadas){
+  var base = chave(rot).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 16);
+  if(!base) base = "funil";
+  var k = base, n = 2;
+  while(jaUsadas && jaUsadas.indexOf(k) > -1){ k = base + n; n++; }
+  return k;
+}
+/* Quantos negocios existem num funil, e em cada estagio dele. E o que
+   decide o que a tela deixa mexer. */
+function fnUso(tipoK){
+  var r = { total:0, abertos:0, porEstagio:{} };
+  var todos = lista("negocios"), i;
+  for(i=0;i<todos.length;i++){
+    var n = todos[i];
+    if(n.tipo !== tipoK) continue;
+    r.total++;
+    if(n.status === "aberto") r.abertos++;
+    r.porEstagio[n.estagio] = (r.porEstagio[n.estagio] || 0) + 1;
+  }
+  return r;
+}
+
+TELAS.funis = function(){
+  if(!ehAdmin()){
+    return '<div class="empty"><div class="ei">🔒</div><div class="et">Essa tela é do Admin</div>' +
+      '<div class="ex">Os funis decidem as etapas que todo mundo vê, então só quem administra o sistema mexe neles.</div>' +
+      '<button class="btn" data-a="ir" data-r="hoje">Voltar pro Hoje</button></div>';
+  }
+
+  var h = '<div class="card-head" style="margin-bottom:0"><div>' +
+    '<div class="sec-title">Funis' + ajuda("funis") + '</div>' +
+    '<div class="sec-sub">Cada tipo de negócio tem o funil dele, com etapas e prazos próprios. ' +
+    'Você pode criar quantos precisar.</div></div>' +
+    '<div><button class="btn btn-primary" data-a="fnNovo">+ Funil</button></div></div>';
+
+  var i, j;
+  for(i=0;i<TIPOS.length;i++){
+    var t = TIPOS[i];
+    var f = FUNIL[t.k] || [];
+    var uso = fnUso(t.k);
+    var desligado = t.ativo === false;
+
+    h += '<div class="card' + (desligado ? '' : ' card-lime') + '" style="margin-bottom:12px">' +
+      '<div class="card-head"><div>' +
+        '<div class="h3" style="margin:0">' + esc(t.ic || "📁") + ' ' + esc(t.rotLongo || t.rot) +
+          (desligado ? ' <span class="tag">desligado</span>' : '') +
+          (t.daCasa ? ' <span class="tag tag-lime">da casa</span>' : '') + '</div>' +
+        '<div class="tiny muted" style="margin-top:4px">' +
+          (t.dinheiro === "recorrente" ? "mensalidade que se repete" : "valor que entra uma vez") +
+          ' · ' + f.length + (f.length === 1 ? ' etapa' : ' etapas') +
+          ' · ' + uso.total + (uso.total === 1 ? ' negócio' : ' negócios') +
+          (uso.abertos ? ', ' + uso.abertos + ' em aberto' : '') +
+        '</div>' +
+      '</div><div class="pills">' +
+        '<button class="btn btn-sm" data-a="fnEditar" data-k="' + esc(t.k) + '">Editar</button>' +
+        (t.daCasa ? '' :
+          '<button class="btn btn-sm btn-ghost" data-a="fnLigar" data-k="' + esc(t.k) + '">' +
+          (desligado ? "Ligar" : "Desligar") + '</button>') +
+      '</div></div>';
+
+    /* As etapas em linha, com a chance e o teto de silencio de cada uma.
+       E a leitura que responde "por que esse negocio apareceu no Hoje". */
+    h += '<div class="tw"><table class="tb"><thead><tr>' +
+      '<th>Etapa</th><th class="r">Chance</th><th class="r">Teto de silêncio</th>' +
+      '<th class="r">Negócios aqui</th><th>O que fecha a etapa</th>' +
+      '</tr></thead><tbody>';
+    if(!f.length){
+      h += '<tr><td colspan="5"><span class="muted">Esse funil ainda não tem etapa nenhuma.</span></td></tr>';
+    }
+    for(j=0;j<f.length;j++){
+      var e = f[j];
+      h += '<tr>' +
+        '<td><b>' + esc(e.rot) + '</b>' +
+          (e.compromisso ? '<div class="cel-sub">pede compromisso</div>' : '') + '</td>' +
+        '<td class="r mono-num">' + esc(pct(e.p * 100, 0)) + '</td>' +
+        '<td class="r mono-num">' + e.teto + ' dias</td>' +
+        '<td class="r mono-num">' + (uso.porEstagio[e.k] || 0) + '</td>' +
+        '<td><div class="tiny muted" style="max-width:380px">' + esc(e.saida || "-") + '</div></td>' +
+      '</tr>';
+    }
+    h += '</tbody></table></div></div>';
+  }
+
+  h += '<div class="card"><div class="tiny muted">' +
+    'A chance de cada etapa é o que o Painel usa pra estimar o mês. O teto de silêncio é quantos ' +
+    'dias sem contato o sistema aguenta antes de puxar o negócio pra fila do Hoje.</div></div>';
+  return h;
+};
+
+/* ---------------------------------------------------------------------
+   CRIAR E EDITAR
+   Um formulario so. Estagios entram como uma linha por etapa, em texto,
+   porque montar arrastavel aqui custaria muito e seria usado tres vezes
+   na vida. O formato e "Nome | chance | teto | o que fecha a etapa".
+   --------------------------------------------------------------------- */
+function fnLinhasDeEstagio(tipoK){
+  var f = FUNIL[tipoK] || [], s = "", i;
+  for(i=0;i<f.length;i++)
+    s += f[i].rot + " | " + Math.round(f[i].p * 100) + " | " + f[i].teto + " | " + (f[i].saida || "") + "\n";
+  return s.trim();
+}
+function fnLerLinhas(txt, tipoK){
+  var linhas = String(txt || "").split("\n"), r = [], usadas = [], i;
+  for(i=0;i<linhas.length;i++){
+    var L = linhas[i].trim();
+    if(!L) continue;
+    var p = L.split("|");
+    var rot = (p[0] || "").trim().slice(0, 40);
+    if(!rot) continue;
+    var chance = parseInt((p[1] || "").trim(), 10);
+    if(isNaN(chance) || chance < 0 || chance > 100) chance = 20;
+    var teto = parseInt((p[2] || "").trim(), 10);
+    if(isNaN(teto) || teto < 1) teto = 14;
+    var k = fnChaveEstagio(tipoK, rot, usadas);
+    usadas.push(k);
+    r.push({ k:k, rot:rot, p:chance / 100, teto:teto,
+             saida:(p[3] || "").trim().slice(0, 200), compromisso:false });
+  }
+  return r;
+}
+/* Mantem a chave de quem ja existia, casando pelo ROTULO. Sem isso,
+   editar a etapa "Proposta" geraria uma chave nova e todo negocio que
+   estava nela ficaria orfao. */
+function fnPreservarChaves(novos, tipoK){
+  var velhos = FUNIL[tipoK] || [], i, j;
+  for(i=0;i<novos.length;i++){
+    for(j=0;j<velhos.length;j++){
+      if(chave(velhos[j].rot) === chave(novos[i].rot)){
+        novos[i].k = velhos[j].k;
+        novos[i].compromisso = velhos[j].compromisso;
+        break;
+      }
+    }
+  }
+  return novos;
+}
+
+function fnFolha(t){
+  var novo = !t;
+  var uso = novo ? { total:0 } : fnUso(t.k);
+  var trancado = !novo && uso.total > 0;
+
+  folha(novo ? "Funil novo" : "Editar " + (t.rotLongo || t.rot),
+    '<form class="form" id="fnF" data-a="fnSalvar" data-k="' + esc(novo ? "" : t.k) + '">' +
+      '<div class="fld"><label>Nome curto, o que aparece nas abas</label>' +
+        '<input class="inp" id="fnRot" maxlength="24" placeholder="Consultoria" value="' +
+          esc(novo ? "" : t.rot) + '"></div>' +
+      '<div class="fld"><label>Nome por extenso</label>' +
+        '<input class="inp" id="fnRotL" maxlength="60" placeholder="Projeto de consultoria" value="' +
+          esc(novo ? "" : (t.rotLongo || "")) + '"></div>' +
+      '<div class="fld"><label>Um emoji pra reconhecer de longe</label>' +
+        '<input class="inp" id="fnIc" maxlength="4" placeholder="🧭" value="' +
+          esc(novo ? "" : (t.ic || "")) + '"></div>' +
+
+      '<div class="fld"><label>O dinheiro desse negócio' + ajuda("dinheiro_funil") + '</label>' +
+        '<select class="inp" id="fnDin"' + (trancado ? ' disabled' : '') + '>' +
+          '<option value="unico"' + (!novo && t.dinheiro === "unico" ? ' selected' : '') +
+            '>Entra uma vez, valor cheio</option>' +
+          '<option value="recorrente"' + (!novo && t.dinheiro === "recorrente" ? ' selected' : '') +
+            '>Se repete todo mês, tipo mensalidade</option>' +
+        '</select>' +
+        '<div class="hint">' +
+          (trancado
+            ? 'Trancado porque esse funil já tem ' + uso.total +
+              (uso.total === 1 ? ' negócio' : ' negócios') +
+              '. Essa escolha decide onde o valor fica guardado dentro de cada negócio, e trocar agora faria todos eles aparecerem valendo zero.'
+            : 'Escolha com cuidado: depois do primeiro negócio entrar, isso tranca. Mensalidade nunca é somada com valor de uma vez em lugar nenhum do sistema.') +
+        '</div></div>' +
+
+      '<div class="fld"><label>As etapas, uma por linha</label>' +
+        '<textarea class="inp" id="fnEst" style="min-height:150px;font-family:ui-monospace,monospace;font-size:13px" ' +
+          'placeholder="Contato | 10 | 7 | Reunião marcada com data\nDiagnóstico | 25 | 10 | Verba e quem decide preenchidos">' +
+          esc(novo ? "" : fnLinhasDeEstagio(t.k)) + '</textarea>' +
+        '<div class="hint">Nome da etapa, chance de fechar em %, quantos dias de silêncio ela aguenta, ' +
+        'e o que precisa acontecer pra sair dela. Separe com o traço em pé. ' +
+        'Só o nome é obrigatório, o resto tem valor padrão.</div></div>' +
+
+      '<div class="grid2">' +
+        '<div class="fld"><label>Dias sem contato tolerados</label>' +
+          '<input class="inp" id="fnToque" type="number" min="1" max="90" value="' +
+            esc(String((TOQUE[novo ? "" : t.k] || {}).normal || 7)) + '"></div>' +
+        '<div class="fld"><label>Ciclo típico, em dias</label>' +
+          '<input class="inp" id="fnCiclo" type="number" min="1" max="720" value="' +
+            esc(String(CICLO_MEDIANO[novo ? "" : t.k] || 45)) + '"></div>' +
+      '</div>' +
+      '<div id="fnErr" class="tiny" style="color:var(--red)"></div>' +
+    '</form>',
+    '<button class="btn btn-ghost" data-a="fecharFolha">Cancelar</button>' +
+    '<button class="btn btn-primary" type="submit" form="fnF">' + (novo ? "Criar funil" : "Salvar") + '</button>');
+}
+
+ACOES.fnNovo = function(){ fnFolha(null); };
+ACOES.fnEditar = function(el){
+  var t = tipoPorK(el.getAttribute('data-k'));
+  if(t) fnFolha(t);
+};
+
+ACOES.fnSalvar = function(f){
+  var k = f.getAttribute('data-k') || "";
+  var err = document.getElementById('fnErr');
+  function ruim(m){ if(err) err.textContent = m; else toast(m, "bad"); }
+
+  var rot = String((document.getElementById('fnRot')||{}).value || "").trim().slice(0,24);
+  if(!rot){ ruim("Dê um nome curto pro funil."); return; }
+  var rotL = String((document.getElementById('fnRotL')||{}).value || "").trim().slice(0,60) || rot;
+  var ic   = String((document.getElementById('fnIc')||{}).value || "").trim().slice(0,4) || "📁";
+  var novo = !k;
+
+  if(novo){
+    var usadas = [];
+    for(var i=0;i<TIPOS.length;i++) usadas.push(TIPOS[i].k);
+    k = fnChaveTipo(rot, usadas);
+  }
+
+  var estagios = fnLerLinhas((document.getElementById('fnEst')||{}).value, k);
+  if(!estagios.length){ ruim("Escreva pelo menos uma etapa."); return; }
+  if(estagios.length > 12){ ruim("Doze etapas é o teto. Funil mais comprido ninguém preenche até o fim."); return; }
+  if(!novo) estagios = fnPreservarChaves(estagios, k);
+
+  /* Aviso antes de deixar negocio sem coluna. A conta e feita sobre as
+     chaves que DEIXARAM de existir, nao sobre a contagem de etapas. */
+  if(!novo){
+    var vivas = estagios.map(function(e){ return e.k; });
+    var uso = fnUso(k), orfaos = 0, ke;
+    for(ke in uso.porEstagio)
+      if(Object.prototype.hasOwnProperty.call(uso.porEstagio, ke) && vivas.indexOf(ke) < 0)
+        orfaos += uso.porEstagio[ke];
+    if(orfaos){
+      ruim(orfaos + (orfaos === 1 ? " negócio está" : " negócios estão") +
+           " numa etapa que você apagou. Mova " + (orfaos === 1 ? "ele" : "eles") +
+           " pra outra etapa primeiro, senão " + (orfaos === 1 ? "ele fica" : "eles ficam") +
+           " sem coluna no funil.");
+      return;
+    }
+  }
+
+  var velho = tipoPorK(k);
+  var dinSel = (document.getElementById('fnDin')||{}).value;
+  var dinheiro = (velho && fnUso(k).total > 0)
+    ? velho.dinheiro                       // trancado: ignora o que vier da tela
+    : (dinSel === "recorrente" ? "recorrente" : "unico");
+
+  var doc = {
+    k:k, rot:rot, rotLongo:rotL, ic:ic, dinheiro:dinheiro,
+    ativo: velho ? (velho.ativo !== false) : true,
+    ordem: velho ? (velho.ordem || TIPOS.indexOf(velho)) : TIPOS.length,
+    estagios:estagios,
+    toqueNormal: parseInt((document.getElementById('fnToque')||{}).value, 10) || 7,
+    toqueUltimo: Math.max(2, Math.round((parseInt((document.getElementById('fnToque')||{}).value, 10) || 7) / 2)),
+    abandono: (parseInt((document.getElementById('fnCiclo')||{}).value, 10) || 45),
+    ciclo: parseInt((document.getElementById('fnCiclo')||{}).value, 10) || 45
+  };
+
+  fecharFolha();
+  gravar("crm_tipos", k, doc).then(function(){
+    fnGuardarLocal(doc);
+    toast(novo ? "Funil criado. Ele já aparece no cadastro." : "Funil salvo", "ok");
+    redesenhar();
+  });
+};
+
+ACOES.fnLigar = function(el){
+  var k = el.getAttribute('data-k'), t = tipoPorK(k);
+  if(!t || t.daCasa) return;
+  var ligando = t.ativo === false;
+  var doc = null, i;
+  for(i=0;i<TIPOS_DOCS.length;i++) if(TIPOS_DOCS[i].k === k) doc = TIPOS_DOCS[i];
+  if(!doc) return;
+  doc.ativo = ligando;
+  gravar("crm_tipos", k, { ativo:ligando }).then(function(){
+    fnGuardarLocal(doc);
+    toast(ligando ? "Funil ligado" : "Funil desligado. Os negócios que já estão nele continuam lá.", "ok");
+    redesenhar();
+  });
+};
+
+/* Espelha no aparelho o que acabou de ir pro banco, pra tela nao esperar
+   a proxima leitura pra mostrar o funil novo. */
+function fnGuardarLocal(doc){
+  var achou = false, i;
+  for(i=0;i<TIPOS_DOCS.length;i++) if(TIPOS_DOCS[i].k === doc.k){ TIPOS_DOCS[i] = doc; achou = true; }
+  if(!achou) TIPOS_DOCS.push(doc);
+  guardar("tipos", TIPOS_DOCS);
+  aplicarTipos(TIPOS_DOCS);
+}
 
 /* ============ PARTIDA ============ */
 if(document.readyState === "loading") document.addEventListener('DOMContentLoaded', boot);
