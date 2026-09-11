@@ -988,7 +988,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.13";
+var VERSAO = "2026-09-11.14";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1117,15 +1117,25 @@ var MOTIVOS_ENCERRAMENTO = [
 ];
 
 /* dias = sugestão de prazo pro próximo passo. null = pede data. */
+/* O QUE FAZER A SEGUIR, por vocabulario de venda.
+
+   Repare na diferenca entre este vocabulario e o de TIPOS_TAREFA: aqui o
+   nome diz O QUE precisa acontecer ("cobrar resposta da proposta"), la
+   diz COMO vai ser feito ("ligacao", "e-mail"). Os dois existem porque
+   respondem perguntas diferentes, e e assim que o RD Station faz: type e
+   subject sao campos separados.
+
+   O campo "tarefa" e a ponte: quando um proximo passo vira tarefa, e este
+   mapa que diz por qual meio ele nasce. Declarado, nao adivinhado. */
 var PROX_TIPOS = [
-  { k:"ligar",        rot:"Ligar",                       dias:2,    ic:"☎" },
-  { k:"mensagem",     rot:"Mandar mensagem",             dias:1,    ic:"💬" },
-  { k:"reuniao",      rot:"Reunião",                     dias:null, ic:"👥", hora:true },
-  { k:"enviar_prop",  rot:"Enviar proposta",             dias:3,    ic:"📄" },
-  { k:"cobrar_prop",  rot:"Cobrar resposta da proposta", dias:3,    ic:"⏰" },
-  { k:"enviar_contr", rot:"Enviar contrato",             dias:2,    ic:"✍" },
-  { k:"cobrar_aprov", rot:"Cobrar aprovação interna",    dias:15,   ic:"⏳", funil:"patrocinio" },
-  { k:"retomar",      rot:"Retomar",                     dias:null, ic:"↻" }
+  { k:"ligar",        rot:"Ligar",                       dias:2,    ic:"☎", tarefa:"ligacao" },
+  { k:"mensagem",     rot:"Mandar mensagem",             dias:1,    ic:"💬", tarefa:"whats" },
+  { k:"reuniao",      rot:"Reunião",                     dias:null, ic:"👥", hora:true, tarefa:"reuniao" },
+  { k:"enviar_prop",  rot:"Enviar proposta",             dias:3,    ic:"📄", tarefa:"email" },
+  { k:"cobrar_prop",  rot:"Cobrar resposta da proposta", dias:3,    ic:"⏰", tarefa:"ligacao" },
+  { k:"enviar_contr", rot:"Enviar contrato",             dias:2,    ic:"✍", tarefa:"email" },
+  { k:"cobrar_aprov", rot:"Cobrar aprovação interna",    dias:15,   ic:"⏳", funil:"patrocinio", tarefa:"ligacao" },
+  { k:"retomar",      rot:"Retomar",                     dias:null, ic:"↻", tarefa:"tarefa" }
 ];
 
 var TIPOS_ATIV = [
@@ -1914,6 +1924,9 @@ function motivoBloqueio(colecao, doc){
   /* Modelo de mensagem NAO e coisa de Admin: quem escreve bem o texto de
      cobranca e quem cobra todo dia. */
   if(colecao === "crm_modelos") return podeRegistrarTudo() ? null : "Seu acesso é só de leitura.";
+  /* Fonte muda a escolha que todo mundo ve no cadastro e vira linha do
+     Painel, entao e configuracao de casa, igual funil. */
+  if(colecao === "crm_origens") return ehAdmin() ? null : "Só o Admin mexe nas fontes.";
   return "Coleção fora do CRM.";
 }
 
@@ -2419,7 +2432,8 @@ var ABAS = [
 function redesenhar(){
   if(!SESSAO){ pintarGate(); return; }
   ROTA = lerRota();
-  if((ROTA.tela === "acessos" || ROTA.tela === "funis") && !ehAdmin()) ROTA.tela = (PERM && PERM.home) || "hoje";
+  if((ROTA.tela === "acessos" || ROTA.tela === "funis" || ROTA.tela === "origens") && !ehAdmin())
+    ROTA.tela = (PERM && PERM.home) || "hoje";
   if(ROTA.tela === "modelos" && motivoBloqueio("crm_modelos") && ROTA.id === "novo") ROTA.id = "";
   if(!TELAS[ROTA.tela]) ROTA.tela = (PERM && PERM.home) || "hoje";
 
@@ -2814,7 +2828,7 @@ function boot(){
         document.getElementById('app').hidden = false;
         pintarCabecalho();
         carregarCache();
-        aplicarTiposDoCache(); aplicarModelosDoCache();
+        aplicarTiposDoCache(); aplicarModelosDoCache(); aplicarOrigensDoCache();
         if(!location.hash) location.hash = "#/" + ((PERM && PERM.home) || "hoje");
         redesenhar();
         // Revalida contra a lista de acessos. Lista VAZIA não derruba
@@ -2822,6 +2836,7 @@ function boot(){
         // um erro de leitura é pior que o risco que evita.
         carregarTipos().then(function(tp){ if(tp.length) redesenhar(); });
         carregarModelos();
+        carregarOrigens().then(function(o){ if(o.length) redesenhar(); });
         carregarAcessos().then(function(acc){
           if(!acc.length){
             if(!SESSAO.recuperacao) avisoBarra("Não consegui ler a lista de acessos agora. Você continua dentro com o perfil da última vez.");
@@ -3128,6 +3143,15 @@ var AJUDA = {
        "Se as duas coisas cobrassem negócio aberto, você teria dois lugares pedindo a mesma coisa " +
        "sem se falarem, e em duas semanas estaria ignorando os dois."
   },
+  tarefas_negocio: {
+    t: "As tarefas deste negócio",
+    x: "Tudo que está marcado pra fazer aqui. Pode ter quantas você precisar.\n\n" +
+       "A de data mais próxima é o <b>próximo passo</b>, e é ela que puxa o negócio pra sua fila " +
+       "do Hoje. Não existe um campo separado de próximo passo: ele é a leitura da primeira tarefa " +
+       "aberta, que é como Pipedrive e HubSpot fazem.\n\n" +
+       "Negócio aberto sem tarefa nenhuma é o estado que o CRM inteiro existe pra evitar. Quando " +
+       "acontece, ele avisa aqui e aparece na fila do Hoje como negócio sem plano."
+  },
   dono_tarefa: {
     t: "De quem é a tarefa",
     x: "Quem tem que fazer. Já vem com o seu nome.\n\n" +
@@ -3160,6 +3184,15 @@ var AJUDA = {
     x: "Alguém que já te trouxe dois negócios ganhos ou mais e passou de 120 dias sem trazer nada.\n\n" +
        "Não é cobrança, é lembrete. Quem já abriu porta uma vez costuma responder rápido, e é o " +
        "contato que mais escapa da fila do dia."
+  },
+  fontes: {
+    t: "Fontes de negócio",
+    x: "De onde o negócio veio. O RD Station chama de fonte, o Pipedrive de source.\n\n" +
+       "Cinco vêm prontas e você cria quantas quiser em Configurações, ou pelo botão + ali " +
+       "mesmo no cadastro. Nenhuma tem tratamento diferente das outras: o Painel compara todas " +
+       "com as mesmas colunas.\n\n" +
+       "Fonte não se apaga, só desliga. Negócio já cadastrado aponta pra ela, e apagar deixaria " +
+       "a tela mostrando código no lugar do nome."
   },
   por_origem: {
     t: "Por origem",
@@ -4154,18 +4187,11 @@ ACOES.hjAbrir = function(el){
   ir("negocio/" + el.getAttribute('data-id'));
 };
 
-ACOES.hjTarefaFeita = function(el){
-  var id = el.getAttribute('data-id');
-  var t = achar("tarefas", id);
-  if(!t) return;
-  var bloq = motivoBloqueio("crm_tarefas");
-  if(bloq){ toast(bloq, "bad"); return; }
-  gravar("crm_tarefas", id, { feita:true }).then(function(){
-    // Toast só depois do servidor confirmar, com Desfazer de 8 segundos no
-    // lugar de confirmacao dupla.
-    comDesfazer("Tarefa feita", "crm_tarefas", id, { feita:false });
-  });
-};
+/* Concluir tarefa e UM caminho so, em 16-tarefas. Existiam dois, e o da
+   fila nao sincronizava o proximo passo do negocio nem pedia a proxima:
+   concluir pelo Hoje e concluir pela tela de Tarefas faziam coisas
+   diferentes, e so quem leu o codigo sabia qual. */
+ACOES.hjTarefaFeita = function(el){ ACOES.tfFeita(el); };
 
 /* RESGATE DE SEXTA
    O que passou de 14 dias de atraso nao volta pra fila do dia porque ela
@@ -5857,12 +5883,24 @@ function registrarAtividade(negocioId, dados){
     up.ultimoToqueEm  = quando;
     up.ultimoToqueTxt = String(ativ.texto || tipoAtivDe(tipo).rot).slice(0,140);
   }
+  /* O proximo passo marcado aqui nasce TAREFA, e o espelho vai junto na
+     mesma gravacao pra tela nao piscar com o valor velho. */
   var p = dados.prox;
+  var tarefaNova = null;
   if(p && p.ligado !== false && p.proxData){
     up.proxTipo  = p.proxTipo || "";
     up.proxData  = p.proxData;
     up.proxTexto = String(p.proxTexto || "").slice(0,140);
     up.proxHora  = p.proxHora || "";
+    var ptp = proxTipoDe(p.proxTipo);
+    tarefaNova = {
+      tipo:(ptp && ptp.tarefa) || "tarefa",
+      texto:String(p.proxTexto || (ptp ? ptp.rot : "Próximo passo")).slice(0,160),
+      data:p.proxData,
+      contatoId:n.contatoId || "", contatoNome:n.contatoNome || "", contatoTel:n.contatoTel || "",
+      negocioId:negocioId, negocioTitulo:n.titulo || n.empresa || "",
+      auto:false
+    };
   }
   if(dados.adiar) up.vezesAdiado = (n.vezesAdiado || 0) + 1;
   if(dados.negocioExtra){
@@ -5885,6 +5923,10 @@ function registrarAtividade(negocioId, dados){
   ]).then(function(){
     naTela.pendente = false;
     alinhar();
+    /* A tarefa vem DEPOIS do negocio: se ela viesse antes, a
+       sincronizacao rodaria em cima de um negocio que ainda nao sabe do
+       proximo passo novo. */
+    if(tarefaNova && podeNegocio) ngCriarTarefa(tarefaNova);
     return naTela;
   }).catch(function(e){
     // Falhou o envio, mas não se perdeu nada: o gravar já jogou na fila do
@@ -5915,6 +5957,80 @@ function ngNota(negocioId, texto){
   return gravar("crm_atividades", idA, a)
     .then(function(){ naTela.pendente = false; alinhar(); })
     .catch(function(){ alinhar(); });
+}
+
+/* ---------------------------------------------------------------------
+   O PROXIMO PASSO E UMA TAREFA
+
+   Ate 11/09/2026 o compromisso do negocio vivia em quatro campos dentro
+   do proprio negocio (proxTipo, proxData, proxTexto, proxHora), e era UM
+   so. Quem precisava anotar tres coisas ("ligar dia 15", "mandar o case
+   dia 18", "falar com o socio dia 22") sobrescrevia a anterior e perdia.
+
+   Agora vale o modelo do mercado: o compromisso e a TAREFA, o negocio
+   pode ter varias, e o "proximo passo" e a leitura da tarefa aberta mais
+   proxima. No Pipedrive isso se chama next_activity_date e no HubSpot
+   hs_next_activity_date; nos dois e derivado, nunca guardado a parte.
+
+   POR QUE OS QUATRO CAMPOS CONTINUAM EXISTINDO
+   Porque 62 pontos do codigo leem proxData: a fila do Hoje, o semaforo,
+   o cartao do funil, a lista, o Painel. Trocar tudo de uma vez e o tipo
+   de reforma que quebra o que ninguem lembrou de olhar. Entao eles ficam
+   como ESPELHO: uma copia da tarefa mais proxima, reescrita por
+   ngSincronizarProximo a cada mudanca de tarefa. Fonte da verdade e a
+   tarefa; o espelho existe pra nao reescrever o CRM inteiro num dia.
+   --------------------------------------------------------------------- */
+function ngTarefasDoNegocio(negocioId, abertas){
+  var r = lista("tarefas").filter(function(t){
+    if(t.negocioId !== negocioId || t.arquivado) return false;
+    if(abertas && t.feita) return false;
+    return true;
+  });
+  r.sort(function(a, b){ return (a.data || "9999") < (b.data || "9999") ? -1 : 1; });
+  return r;
+}
+function ngProximaTarefa(negocioId){
+  var r = ngTarefasDoNegocio(negocioId, true).filter(function(t){ return !!t.data; });
+  return r.length ? r[0] : null;
+}
+/* Reescreve o espelho a partir da tarefa aberta mais proxima. Sem tarefa
+   nenhuma, LIMPA: negocio aberto sem tarefa tem que aparecer na fila como
+   negocio sem plano, que e o alerta que faz a pessoa marcar a proxima. */
+function ngSincronizarProximo(negocioId){
+  var n = achar("negocios", negocioId);
+  if(!n || n.status !== "aberto") return Promise.resolve();
+  if(motivoBloqueio("crm_negocios")) return Promise.resolve();
+  var t = ngProximaTarefa(negocioId);
+  var up = t
+    ? { proxTipo: ngProxDeTarefa(t), proxData: t.data,
+        proxTexto: String(t.texto || "").slice(0,140), proxHora: "" }
+    : { proxTipo:"", proxData:"", proxTexto:"", proxHora:"" };
+  if(up.proxData === (n.proxData || "") && up.proxTexto === (n.proxTexto || ""))
+    return Promise.resolve();
+  return gravar("crm_negocios", negocioId, up);
+}
+/* De volta pro vocabulario de venda, pro cartao continuar dizendo "cobrar
+   resposta da proposta" em vez de "ligacao". */
+function ngProxDeTarefa(t){
+  for(var i=0;i<PROX_TIPOS.length;i++) if(PROX_TIPOS[i].tarefa === t.tipo) return PROX_TIPOS[i].k;
+  return "ligar";
+}
+/* Negocio antigo tem proximo passo nos campos e nenhuma tarefa. Na
+   primeira vez que alguem cria tarefa nele, o compromisso que ja existia
+   vira tarefa tambem, senao ele sumiria do espelho na sincronizacao
+   seguinte. Uma vez so, e no momento exato em que faz diferenca. */
+function ngGarantirTarefaDoProximo(n){
+  if(!n || !n.proxData) return Promise.resolve();
+  if(ngTarefasDoNegocio(n.id, true).length) return Promise.resolve();
+  var pt = proxTipoDe(n.proxTipo);
+  return ngCriarTarefa({
+    tipo: (pt && pt.tarefa) || "tarefa",
+    texto: n.proxTexto || (pt ? pt.rot : "Próximo passo"),
+    data: n.proxData,
+    contatoId:n.contatoId || "", contatoNome:n.contatoNome || "", contatoTel:n.contatoTel || "",
+    negocioId:n.id, negocioTitulo:n.titulo || n.empresa || "",
+    auto:false
+  });
 }
 
 /* A FABRICA DE TAREFA, unica do sistema.
@@ -6651,37 +6767,60 @@ function ngBlocoSaude(n){
 
 /* Outros negócios da mesma empresa. Renovação, segunda cota e upsell
    moram aqui, e sem esse bloco o vendedor abre a empresa errada. */
-/* TAREFA NO NEGOCIO: SO DEPOIS DE FECHADO.
+/* AS TAREFAS DO NEGOCIO.
 
-   Com o negocio aberto, o compromisso e o proximo passo, que ja e um por
-   negocio, com data, e cobrado pela fila do Hoje. Oferecer tarefa ali do
-   lado criaria dois lugares cobrando a mesma coisa sem conversarem entre
-   si, e a pessoa aprende a ignorar os dois.
+   Vale pro negocio aberto e pro fechado, com uma diferenca de leitura: no
+   aberto, a tarefa mais proxima E o proximo passo, e o bloco diz isso com
+   todas as letras pra ninguem procurar o compromisso em dois lugares.
 
-   Depois de fechado o proximo passo e zerado, e ai a tarefa passa a ser o
-   unico jeito de ter compromisso com aquele negocio. */
+   Negocio aberto sem nenhuma tarefa e o estado que o CRM inteiro existe
+   pra evitar, entao aqui ele nao aparece como lista vazia educada: ele
+   aparece como aviso, com o botao pronto. */
 function ngBlocoTarefas(n){
-  if(n.status === "aberto") return "";
   var bloq = motivoBloqueio("crm_tarefas");
-  var minhas = lista("tarefas").filter(function(t){
-    return t.negocioId === n.id && !t.feita && !t.arquivado;
-  });
-  var h = '<div class="card"><div class="card-head" style="margin-bottom:8px"><div>' +
-    '<div class="sec-title">Tarefas' + ajuda("tarefas") + '</div>' +
-    '<div class="sec-sub" style="padding-left:0">Esse negócio está fechado, então o que sobrou dele vive aqui.</div>' +
-    '</div><div>' + (bloq ? '' :
-      '<button class="btn btn-sm" data-a="tfDoNegocio" data-id="' + esc(n.id) + '">+ Tarefa</button>') +
+  var abertas = ngTarefasDoNegocio(n.id, true);
+  var aberto = n.status === "aberto";
+  var prox = aberto ? ngProximaTarefa(n.id) : null;
+
+  var h = '<div class="card' + (aberto && !abertas.length ? ' card-lime' : '') + '">' +
+    '<div class="card-head" style="margin-bottom:8px"><div>' +
+      '<div class="sec-title">Tarefas' + ajuda("tarefas_negocio") + '</div>' +
+      '<div class="sec-sub" style="padding-left:0">' +
+        (aberto
+          ? 'A mais próxima é o próximo passo deste negócio.'
+          : 'Esse negócio está fechado, então o que sobrou dele vive aqui.') +
+      '</div></div><div>' +
+      (bloq ? '' : '<button class="btn btn-sm' + (abertas.length ? '' : ' btn-primary') +
+        '" data-a="tfDoNegocio" data-id="' + esc(n.id) + '">+ Tarefa</button>') +
     '</div></div>';
-  if(!minhas.length)
-    return h + '<div class="tiny muted">Nenhuma tarefa em aberto pra esse negócio.</div></div>';
-  for(var i=0;i<minhas.length;i++){
-    var tf = minhas[i];
-    h += '<div style="display:flex;gap:9px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--border)">' +
-      '<div>' + icTarefa(tf.tipo) + '</div>' +
-      '<div style="flex:1;min-width:0"><div class="truncate">' + esc(tf.texto || rotTarefa(tf.tipo)) + '</div>' +
-        '<div class="tiny muted">' + esc(tf.data ? dataBR(tf.data) : "sem data") +
-        (tf.donoNome ? ' · ' + esc(tf.donoNome) : '') + '</div></div>' +
-      (bloq ? '' : '<button class="btn btn-sm" data-a="tfFeita" data-id="' + esc(tf.id) + '">✓</button>') +
+
+  if(!abertas.length){
+    return h + '<div class="' + (aberto ? 'small' : 'tiny muted') + '">' +
+      (aberto
+        ? 'Esse negócio está sem nada marcado. Enquanto ficar assim, ninguém vai lembrar dele: ' +
+          'ele aparece na fila do Hoje como negócio sem plano e para de andar.'
+        : 'Nenhuma tarefa em aberto pra esse negócio.') +
+      '</div></div>';
+  }
+
+  for(var i=0;i<abertas.length;i++){
+    var tf = abertas[i];
+    var ehProx = prox && prox.id === tf.id;
+    var atras = tf.data && diasVencido(tf.data) > 0;
+    h += '<div style="display:flex;gap:9px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border)">' +
+      '<div style="flex:0 0 auto">' + icTarefa(tf.tipo) + '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div class="truncate" style="font-weight:' + (ehProx ? "600" : "400") + '">' +
+          esc(tf.texto || rotTarefa(tf.tipo)) +
+          (ehProx ? ' <span class="tag tag-lime">próximo passo</span>' : '') + '</div>' +
+        '<div class="tiny" style="color:' + (atras ? "var(--red)" : "var(--text3)") + '">' +
+          esc(tf.data ? dataBR(tf.data) : "sem data") +
+          (atras ? ', venceu há ' + diasVencido(tf.data) + ' dias' : '') +
+          (tf.donoNome ? ' · ' + esc(tf.donoNome) : '') + '</div>' +
+      '</div>' +
+      (bloq ? '' :
+        '<button class="btn btn-sm" data-a="tfFeita" data-id="' + esc(tf.id) + '">✓</button>' +
+        '<button class="btn btn-sm btn-ghost" data-a="tfEditar" data-id="' + esc(tf.id) + '">Editar</button>') +
     '</div>';
   }
   return h + '</div>';
@@ -11068,7 +11207,7 @@ function abrirNovoNegocio(pre){
       '</div>' +
 
       '<div class="fld">' +
-        '<label>De onde veio <span class="req">*</span></label>' +
+        '<label>De onde veio <span class="req">*</span>' + ajuda("fontes") + '</label>' +
         '<div class="pills" id="nnOrigens"></div>' +
       '</div>' +
 
@@ -11151,11 +11290,19 @@ function nnPintarOrigens(){
   var w = document.getElementById('nnOrigens');
   if(!w || !NOVO) return;
   var h = "";
-  for(var i=0;i<ORIGENS.length;i++){
-    var o = ORIGENS[i];
+  var ats = origensAtivas();
+  for(var i=0;i<ats.length;i++){
+    var o = ats[i];
     h += '<button type="button" class="pill' + (NOVO.origem === o[0] ? ' on' : '') + '" ' +
          'data-a="nnOrigem" data-k="' + o[0] + '">' + esc(o[1]) + '</button>';
   }
+  /* O "+" fica aqui, no fim da fila, e nao so em Configuracoes: a falta
+     de uma fonte aparece no segundo em que a pessoa olha os botoes e nao
+     acha o canal de onde o negocio veio. Se ela tiver que sair do
+     cadastro pra criar, escolhe o botao mais parecido e o dado nasce
+     errado. */
+  if(!motivoBloqueio("crm_origens"))
+    h += '<button type="button" class="pill" data-a="orAbrirNova" title="Criar uma fonte nova">+</button>';
   w.innerHTML = h;
 }
 ACOES.nnOrigem = function(el){
@@ -11571,6 +11718,20 @@ ACOES.salvarNovoNegocio = function(form){
       ativ.id = ativId;
       empurrarTimeline(id, ativ);           // entra na timeline local sem leitura
       return gravar("crm_atividades", ativId, ativ);
+    })
+    .then(function(){
+      /* O proximo passo do cadastro nasce TAREFA tambem, senao o primeiro
+         compromisso do negocio seria o unico do sistema que nao aparece na
+         aba Tarefas nem some quando concluido. */
+      var ptp = proxTipoDe(pp.proxTipo);
+      return ngCriarTarefa({
+        tipo:(ptp && ptp.tarefa) || "tarefa",
+        texto:String(pp.proxTexto || (ptp ? ptp.rot : "Próximo passo")).slice(0,160),
+        data:pp.proxData,
+        contatoId:n.contatoId, contatoNome:ctNome, contatoTel:ctTel,
+        negocioId:id, negocioTitulo:titulo.slice(0,120),
+        auto:false
+      });
     })
     .then(function(){
       NN_SALVANDO = false;
@@ -13548,18 +13709,20 @@ var MODELO_VARS = [
 
    Montar da lista tambem resolve o futuro: origem nova entra aqui
    sozinha, sem ninguem lembrar de editar esta constante. */
-var MODELO_QUANDO = [
-  ["sempre",     "Em qualquer conversa"],
-  ["agencia",    "Só em negócio de mensalidade"],
-  ["patrocinio", "Só em negócio de valor único"],
-  ["trouxe",     "Só quando alguém trouxe o negócio"],
-  ["contato",    "Só quando a conversa tem uma pessoa no nome"]
-];
-(function(){
+/* Calculada NA HORA, nunca congelada numa constante: fonte criada pela
+   casa depois da partida precisa aparecer aqui sem recarregar a pagina. */
+function modeloQuando(){
+  var r = [
+    ["sempre",     "Em qualquer conversa"],
+    ["agencia",    "Só em negócio de mensalidade"],
+    ["patrocinio", "Só em negócio de valor único"],
+    ["trouxe",     "Só quando alguém trouxe o negócio"],
+    ["contato",    "Só quando a conversa tem uma pessoa no nome"]
+  ];
   for(var i=0;i<ORIGENS.length;i++)
-    MODELO_QUANDO.push(["origem_" + ORIGENS[i][0],
-                        "Só quando veio de " + ORIGENS[i][1].toLowerCase()]);
-})();
+    r.push(["origem_" + ORIGENS[i][0], "Só quando veio de " + ORIGENS[i][1].toLowerCase()]);
+  return r;
+}
 
 function aplicarModelos(docs){
   MODELOS = JSON.parse(JSON.stringify(MODELOS_SEMENTE));
@@ -13710,7 +13873,8 @@ TELAS.modelos = function(){
 ACOES.mdAbrir = function(){ fecharFolha(); ir("modelos"); };
 ACOES.mdAbrirNovo = function(){ fecharFolha(); ir("modelos/novo"); };
 function mdRotQuando(k){
-  for(var i=0;i<MODELO_QUANDO.length;i++) if(MODELO_QUANDO[i][0] === k) return MODELO_QUANDO[i][1];
+  var MQ = modeloQuando();
+  for(var i=0;i<MQ.length;i++) if(MQ[i][0] === k) return MQ[i][1];
   return "Em qualquer conversa";
 }
 
@@ -13721,11 +13885,11 @@ function mdFolhaEditar(m){
     vars += '<button type="button" class="pill" data-a="mdVar" data-v="' + esc(MODELO_VARS[i][0]) + '">' +
             '{' + esc(MODELO_VARS[i][0]) + '} <span class="tiny muted">' + esc(MODELO_VARS[i][1]) + '</span></button>';
 
-  var ops = "";
-  for(i=0;i<MODELO_QUANDO.length;i++)
-    ops += '<option value="' + esc(MODELO_QUANDO[i][0]) + '"' +
-           (!novo && m.quando === MODELO_QUANDO[i][0] ? ' selected' : '') + '>' +
-           esc(MODELO_QUANDO[i][1]) + '</option>';
+  var ops = "", MQ = modeloQuando();
+  for(i=0;i<MQ.length;i++)
+    ops += '<option value="' + esc(MQ[i][0]) + '"' +
+           (!novo && m.quando === MQ[i][0] ? ' selected' : '') + '>' +
+           esc(MQ[i][1]) + '</option>';
 
   folha(novo ? "Modelo novo" : "Editar modelo",
     '<form class="form" id="mdF" data-a="mdSalvar" data-k="' + esc(novo ? "" : m.k) + '">' +
@@ -13867,6 +14031,18 @@ var CONFIG_ITENS = [
     conta:function(){
       var n = modelosAtivos().length;
       return n + (n === 1 ? " modelo ativo" : " modelos ativos");
+    } },
+
+  { k:"origens", ic:"🧲", rot:"Fontes de negócio",
+    sub:"De onde o negócio veio",
+    txt:"São os botões do campo \"de onde veio\" no cadastro, e as linhas do bloco Por origem " +
+        "no Painel. Canal novo que não cabe na lista vira prospecção na marra, e aí a análise " +
+        "passa a medir o balde errado.",
+    novo:"origens/nova", ver:"origens",
+    pode:function(){ return motivoBloqueio("crm_origens"); },
+    conta:function(){
+      var n = origensAtivas().length;
+      return n + (n === 1 ? " fonte ativa" : " fontes ativas");
     } },
 
   { k:"acessos", ic:"🔑", rot:"Acessos",
@@ -14224,32 +14400,131 @@ ACOES.tfSalvar = function(f){
     var antes = { texto:velha.texto, data:velha.data, tipo:velha.tipo,
                   donoId:velha.donoId || "", donoNome:velha.donoNome || "" };
     gravar("crm_tarefas", id, { texto:texto, data:data, tipo:tipo, donoId:donoId, donoNome:donoNome })
+      .then(function(){ if(velha.negocioId) return ngSincronizarProximo(velha.negocioId); })
       .then(function(){ comDesfazer("Tarefa salva", "crm_tarefas", id, antes); });
     return;
   }
 
   var pre = TF_PRE || {};
-  ngCriarTarefa({
+  /* Negocio antigo com proximo passo nos campos e sem tarefa: o
+     compromisso que ja existia vira tarefa antes, senao ele sumiria na
+     primeira sincronizacao. */
+  var alvo = pre.negocioId ? achar("negocios", pre.negocioId) : null;
+  /* Escrito como duas chamadas e nao com Promise.resolve() na frente: o
+     Promise nativo so resolve depois que a pilha esvazia, e num motor sem
+     microtask o cadastro inteiro nao gravaria nada. */
+  function criar(){ return ngCriarTarefa({
     tipo:tipo, texto:texto, data:data,
     donoId:donoId, donoNome:donoNome, auto:false,
     contatoId:pre.contatoId || "", contatoNome:pre.contatoNome || "", contatoTel:pre.contatoTel || "",
     negocioId:pre.negocioId || "", negocioTitulo:pre.negocioTitulo || ""
+  }); }
+  var p = (alvo && alvo.proxData && !ngTarefasDoNegocio(alvo.id, true).length)
+        ? ngGarantirTarefaDoProximo(alvo).then(criar)
+        : criar();
+  p.then(function(){
+    if(pre.negocioId) return ngSincronizarProximo(pre.negocioId);
   }).then(function(){ toast("Tarefa criada", "ok"); redesenhar(); });
 };
 
-/* Concluir agora GRAVA QUEM E QUANDO. Sem isso a lista de concluidas e
-   uma lista de frases sem dono e sem data, que nao responde nada. */
+/* Concluir GRAVA QUEM E QUANDO, sincroniza o proximo passo do negocio, e
+   entao PEDE A PROXIMA.
+
+   O pedido na hora e a peca que faz o resto funcionar. Negocio fica sem
+   plano exatamente no instante em que alguem conclui alguma coisa, que e
+   tambem o unico instante em que a pessoa esta com o contexto na cabeca e
+   o CRM aberto. Alerta sozinho avisa tarde: avisa amanha, quando ela ja
+   nao lembra do que foi combinado na ligacao.
+
+   Nao e trava. Tem o botao de deixar pra depois, e quem usa ele cai no
+   alerta de negocio sem plano, que continua existindo como rede. */
 ACOES.tfFeita = function(el){
   var id = el.getAttribute('data-id'), t = achar("tarefas", id);
   if(!t) return;
   var bloq = motivoBloqueio("crm_tarefas");
   if(bloq){ toast(bloq, "bad"); return; }
+  var negocioId = t.negocioId || "";
   gravar("crm_tarefas", id, {
     feita:true, feitaEm:hojeISO(), feitaPor:(SESSAO && SESSAO.nome) || ""
   }).then(function(){
+    if(negocioId) return ngSincronizarProximo(negocioId);
+  }).then(function(){
     redesenhar();
     comDesfazer("Tarefa feita", "crm_tarefas", id, { feita:false, feitaEm:"", feitaPor:"" });
+    if(negocioId) tfPedirProxima(negocioId);
   });
+};
+
+/* A FOLHA DO "E AGORA?".
+
+   So aparece quando o negocio ficou SEM nenhuma tarefa aberta. Se ainda
+   sobrou coisa marcada, o compromisso existe e perguntar de novo seria
+   ruido: o CRM estaria pedindo plano pra quem ja tem plano. */
+function tfPedirProxima(negocioId){
+  var n = achar("negocios", negocioId);
+  if(!n || n.status !== "aberto") return;
+  if(ngTarefasDoNegocio(negocioId, true).length) return;
+  if(motivoBloqueio("crm_tarefas")) return;
+
+  /* A sugestao sai do ESTAGIO: e o ato que o criterio de saida daquele
+     estagio pede. Em Diagnostico falta mandar a proposta; em Proposta
+     falta cobrar a resposta. */
+  var sug = proxTipoDe(NG_SUGESTAO[n.estagio]) || PROX_TIPOS[0];
+  var dias = sug.dias === null || sug.dias === undefined ? 3 : sug.dias;
+
+  var ops = "", i;
+  for(i=0;i<PROX_TIPOS.length;i++){
+    if(PROX_TIPOS[i].funil && PROX_TIPOS[i].funil !== n.tipo) continue;
+    ops += '<option value="' + esc(PROX_TIPOS[i].k) + '"' +
+           (PROX_TIPOS[i].k === sug.k ? ' selected' : '') + '>' +
+           PROX_TIPOS[i].ic + '  ' + esc(PROX_TIPOS[i].rot) + '</option>';
+  }
+
+  folha("E agora, o que fica marcado?",
+    '<form class="form" id="tfPF" data-a="tfSalvarProxima" data-id="' + esc(negocioId) + '">' +
+      '<div class="small muted2" style="margin-bottom:11px">' +
+        esc(n.empresa || n.titulo || "Esse negócio") + ' ficou sem nada marcado. ' +
+        'Um negócio sem próximo passo para de andar, e ninguém percebe até ser tarde.</div>' +
+      '<div class="fld"><label>O que fazer</label>' +
+        '<select class="inp" id="tfPTipo">' + ops + '</select>' +
+        '<div class="hint">Sugerido pela etapa ' + esc(ngRotEstagio(n.estagio)) + '.</div></div>' +
+      '<div class="fld" style="max-width:240px"><label>Quando</label>' +
+        '<input class="inp" type="date" id="tfPData" value="' + esc(somaDias(hojeISO(), dias)) + '" ' +
+          'min="' + hojeISO() + '"></div>' +
+      '<div class="fld"><label>Detalhe (opcional)</label>' +
+        '<input class="inp" id="tfPTexto" maxlength="160" autocomplete="off" ' +
+          'placeholder="falar com o sócio, não com o financeiro"></div>' +
+      '<div id="tfPErr" class="tiny" style="color:var(--red)"></div>' +
+    '</form>',
+    '<button class="btn btn-ghost" data-a="fecharFolha">Deixar pra depois</button>' +
+    '<button class="btn btn-primary" type="submit" form="tfPF">Marcar</button>');
+}
+
+ACOES.tfSalvarProxima = function(f){
+  var negocioId = f.getAttribute('data-id');
+  var n = achar("negocios", negocioId);
+  if(!n){ fecharFolha(); return; }
+  var k = String((document.getElementById('tfPTipo')||{}).value || "");
+  var data = String((document.getElementById('tfPData')||{}).value || "");
+  var txt = String((document.getElementById('tfPTexto')||{}).value || "").trim().slice(0,160);
+  if(!data){
+    var e = document.getElementById('tfPErr');
+    if(e) e.textContent = "Escolha a data. É ela que faz o negócio voltar pra sua fila.";
+    return;
+  }
+  var pt = proxTipoDe(k);
+  var c = n.contatoId ? contatoPorId(n.contatoId) : null;
+  fecharFolha();
+  ngCriarTarefa({
+    tipo:(pt && pt.tarefa) || "tarefa",
+    texto: txt || (pt ? pt.rot : "Próximo passo"),
+    data:data,
+    contatoId:n.contatoId || "", contatoNome:n.contatoNome || "",
+    contatoTel:(c && c.tel) || n.contatoTel || "",
+    negocioId:n.id, negocioTitulo:n.titulo || n.empresa || "",
+    auto:false
+  }).then(function(){ return ngSincronizarProximo(n.id); })
+    .then(function(){ toast("Marcado pra " + dataBR(data), "ok"); redesenhar(); });
 };
 ACOES.tfZap = function(el){
   var t = achar("tarefas", el.getAttribute('data-id'));
@@ -14277,6 +14552,219 @@ ACOES.tfDaPessoa = function(el){
   var c = contatoPorId(el.getAttribute('data-id'));
   if(!c) return;
   tfFolha(null, { contatoId:c.id, contatoNome:c.nome, contatoTel:c.tel || "" });
+};
+
+/* ============ 17-origens ============ */
+/* =====================================================================
+   CRM LIME - FONTES DE NEGOCIO
+
+   De onde o negocio veio. O RD Station chama de "Fonte", o Pipedrive de
+   "Source", o HubSpot de "Original source". Aqui o campo se chama "de
+   onde veio" na tela de cadastro, porque e o que a pessoa pergunta, e
+   "fonte" na configuracao, porque e o nome que o mercado usa.
+
+   POR QUE ISSO VIROU CONFIGURAVEL
+   Eram cinco escritas no codigo, e mexer nelas exigia publicar o sistema
+   de novo. RD e Pipedrive deixam a casa criar as proprias fontes, e com
+   razao: quem vende sabe de onde o negocio vem, e isso muda de ano em
+   ano. Um canal novo que nao cabe na lista vira "prospeccao" na marra, e
+   ai a analise por origem passa a medir o balde errado.
+
+   POR QUE FONTE DESLIGADA NAO SOME
+   Negocio ja cadastrado aponta pra ela. Se ela sumisse, a tela mostraria
+   a chave crua no lugar do nome, e o Painel perderia a linha inteira.
+   Desligar tira da escolha do cadastro e mantem tudo que ja existe.
+
+   NAO EXISTE APAGAR, pelo mesmo motivo dos funis e dos modelos.
+   ===================================================================== */
+
+var ORIGENS_SEMENTE = JSON.parse(JSON.stringify(ORIGENS));
+var ORIGENS_DOCS = [];
+/* Quais estao desligadas. Mora fora de ORIGENS porque ORIGENS e um array
+   de pares [chave, rotulo], e o resto do codigo conta com esse formato. */
+var ORIGENS_OFF = {};
+
+function aplicarOrigens(docs){
+  ORIGENS = JSON.parse(JSON.stringify(ORIGENS_SEMENTE));
+  ORIGENS_OFF = {};
+  var pos = {}, i;
+  for(i=0;i<ORIGENS.length;i++) pos[ORIGENS[i][0]] = i;
+
+  for(i=0;i<(docs||[]).length;i++){
+    var d = docs[i];
+    if(!d || !d.k) continue;
+    var rot = String(d.rot || d.k).slice(0, 40);
+    if(pos[d.k] !== undefined) ORIGENS[pos[d.k]][1] = rot;
+    else { ORIGENS.push([d.k, rot]); pos[d.k] = ORIGENS.length - 1; }
+    if(d.ativo === false) ORIGENS_OFF[d.k] = true;
+  }
+  return ORIGENS;
+}
+/* As que aparecem pra escolher no cadastro. Desligada continua existindo
+   pra desenhar negocio antigo, mas nao entra em negocio novo. */
+function origensAtivas(){
+  var r = [], i;
+  for(i=0;i<ORIGENS.length;i++) if(!ORIGENS_OFF[ORIGENS[i][0]]) r.push(ORIGENS[i]);
+  return r.length ? r : ORIGENS;
+}
+function origemExiste(k){
+  for(var i=0;i<ORIGENS.length;i++) if(ORIGENS[i][0] === k) return true;
+  return false;
+}
+function carregarOrigens(){
+  if(!FB_ON || !AUTH_OK) return Promise.resolve([]);
+  return db.collection("crm_origens").get().then(function(snap){
+    SYNC.lidas += Math.max(snap.size, 1);
+    var r = [];
+    snap.forEach(function(d){ var o = d.data(); o.id = d.id; if(!o.k) o.k = d.id; r.push(o); });
+    ORIGENS_DOCS = r;
+    guardar("origens", r);
+    aplicarOrigens(r);
+    return r;
+  }).catch(function(e){ explicarErro(e); return []; });
+}
+function aplicarOrigensDoCache(){
+  var c = recuperar("origens", null);
+  if(c && c.length){ ORIGENS_DOCS = c; aplicarOrigens(c); }
+}
+function orGuardarLocal(doc){
+  var achou = false, i;
+  for(i=0;i<ORIGENS_DOCS.length;i++) if(ORIGENS_DOCS[i].k === doc.k){ ORIGENS_DOCS[i] = doc; achou = true; }
+  if(!achou) ORIGENS_DOCS.push(doc);
+  guardar("origens", ORIGENS_DOCS);
+  aplicarOrigens(ORIGENS_DOCS);
+}
+function orChave(rot, usadas){
+  var base = chave(rot).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 20);
+  if(!base) base = "fonte";
+  var k = base, i = 2;
+  while(usadas && usadas.indexOf(k) > -1){ k = base + "_" + i; i++; }
+  return k;
+}
+/* Quantos negocios usam essa fonte. E o numero que decide o que a tela
+   deixa mexer, e e o que responde "posso desligar isso?". */
+function orUso(k){
+  var n = 0, ns = lista("negocios");
+  for(var i=0;i<ns.length;i++) if(!ns[i].arquivado && ns[i].origem === k) n++;
+  return n;
+}
+
+TELAS.origens = function(){
+  var bloq = motivoBloqueio("crm_origens");
+  if(!ehAdmin()){
+    return '<div class="empty"><div class="ei">🔒</div><div class="et">Só o Admin mexe nas fontes</div>' +
+      '<div class="ex">A fonte muda a escolha que todo mundo vê no cadastro e vira linha do Painel, ' +
+      'então ela é configuração da casa, igual aos funis.</div>' +
+      '<button class="btn" data-a="ir" data-r="hoje">Voltar pro Hoje</button></div>';
+  }
+
+  if(ROTA.id === "nova" && !bloq) DEPOIS.push(function(){
+    if(location.hash.indexOf("/nova") > -1) location.hash = "#/origens";
+    orFolha(null);
+  });
+
+  var h = '<div class="card-head" style="margin-bottom:0"><div>' +
+    '<div class="sec-title">Fontes de negócio' + ajuda("fontes") + '</div>' +
+    '<div class="sec-sub">De onde o negócio veio. É o campo "de onde veio" do cadastro, e a ' +
+    'dimensão que o Painel usa pra comparar os canais entre si.</div></div>' +
+    '<div>' + (bloq
+      ? '<span class="tiny" style="color:var(--text3)">' + esc(bloq) + '</span>'
+      : '<button class="btn btn-primary" data-a="orNova">+ Fonte</button>') +
+    '</div></div>';
+
+  h += '<div class="card"><div class="tw"><table class="tb"><thead><tr>' +
+    '<th>Fonte</th><th class="r">Negócios</th><th></th>' +
+    '</tr></thead><tbody>';
+  for(var i=0;i<ORIGENS.length;i++){
+    var k = ORIGENS[i][0], off = !!ORIGENS_OFF[k], uso = orUso(k);
+    var daCasa = false;
+    for(var j=0;j<ORIGENS_SEMENTE.length;j++) if(ORIGENS_SEMENTE[j][0] === k) daCasa = true;
+    h += '<tr>' +
+      '<td><b>' + esc(ORIGENS[i][1]) + '</b>' +
+        (off ? ' <span class="tag">desligada</span>' : '') +
+        (daCasa ? ' <span class="tag tag-lime">da casa</span>' : '') + '</td>' +
+      '<td class="r mono-num">' + (uso || '<span class="muted">-</span>') + '</td>' +
+      '<td class="r">' + (bloq ? '' :
+        '<button class="btn btn-sm" data-a="orEditar" data-k="' + esc(k) + '">Renomear</button> ' +
+        '<button class="btn btn-sm btn-ghost" data-a="orLigar" data-k="' + esc(k) + '">' +
+        (off ? "Ligar" : "Desligar") + '</button>') + '</td>' +
+    '</tr>';
+  }
+  h += '</tbody></table></div></div>';
+
+  h += '<div class="card"><div class="tiny muted">' +
+    'Fonte não se apaga, só desliga: negócio já cadastrado aponta pra ela, e sumir deixaria ' +
+    'a tela mostrando código no lugar do nome. Desligada, ela sai da escolha do cadastro e ' +
+    'continua contando no Painel.</div></div>';
+  return h;
+};
+
+function orFolha(k){
+  var novo = !k, rot = "", uso = 0;
+  if(!novo){ rot = rotOrigem(k); uso = orUso(k); }
+  folha(novo ? "Fonte nova" : "Renomear fonte",
+    '<form class="form" id="orF" data-a="orSalvar" data-k="' + esc(novo ? "" : k) + '">' +
+      '<div class="fld"><label>Nome da fonte</label>' +
+        '<input class="inp" id="orRot" maxlength="40" autocomplete="off" ' +
+          'placeholder="LinkedIn, parceria, anúncio" value="' + esc(rot) + '">' +
+        '<div class="hint">' +
+          (novo
+            ? 'É o que vai aparecer nos botões do cadastro e como linha no Painel.'
+            : (uso ? 'Renomear troca o nome em toda parte, inclusive nos ' + uso +
+                     ' negócios que já usam essa fonte. O histórico não se perde.'
+                   : 'Nenhum negócio usa essa fonte ainda.')) +
+        '</div></div>' +
+      '<div id="orErr" class="tiny" style="color:var(--red)"></div>' +
+    '</form>',
+    '<button class="btn btn-ghost" data-a="fecharFolha">Cancelar</button>' +
+    '<button class="btn btn-primary" type="submit" form="orF">' + (novo ? "Criar" : "Salvar") + '</button>');
+}
+ACOES.orNova = function(){ orFolha(null); };
+ACOES.orEditar = function(el){ orFolha(el.getAttribute('data-k')); };
+/* Atalho vindo do proprio cadastro, que e onde a falta aparece. */
+ACOES.orAbrirNova = function(){ fecharFolha(); ir("origens/nova"); };
+
+ACOES.orSalvar = function(f){
+  var k = f.getAttribute('data-k') || "";
+  var err = document.getElementById('orErr');
+  function ruim(m){ if(err) err.textContent = m; else toast(m, "bad"); }
+
+  var bloq = motivoBloqueio("crm_origens");
+  if(bloq){ ruim(bloq); return; }
+
+  var rot = String((document.getElementById('orRot')||{}).value || "").trim().slice(0,40);
+  if(rot.length < 2){ ruim("Dê um nome pra fonte."); return; }
+
+  var novo = !k;
+  if(novo){
+    /* Nome repetido vira duas linhas iguais no Painel e ninguem sabe qual
+       escolher no cadastro. */
+    for(var i=0;i<ORIGENS.length;i++)
+      if(chave(ORIGENS[i][1]) === chave(rot)){ ruim('Já existe uma fonte chamada "' + ORIGENS[i][1] + '".'); return; }
+    var usadas = [];
+    for(i=0;i<ORIGENS.length;i++) usadas.push(ORIGENS[i][0]);
+    k = orChave(rot, usadas);
+  }
+  var doc = { k:k, rot:rot, ativo: ORIGENS_OFF[k] ? false : true,
+              ordem: ORIGENS.length };
+  fecharFolha();
+  gravar("crm_origens", k, doc).then(function(){
+    orGuardarLocal(doc);
+    toast(novo ? "Fonte criada" : "Fonte renomeada", "ok");
+    redesenhar();
+  });
+};
+
+ACOES.orLigar = function(el){
+  var k = el.getAttribute('data-k');
+  var ligando = !!ORIGENS_OFF[k];
+  var doc = { k:k, rot:rotOrigem(k), ativo:ligando, ordem:0 };
+  for(var i=0;i<ORIGENS.length;i++) if(ORIGENS[i][0] === k) doc.ordem = i;
+  gravar("crm_origens", k, doc).then(function(){
+    orGuardarLocal(doc);
+    toast(ligando ? "Fonte ligada" : "Fonte desligada. Os negócios que já usam ela continuam como estão.", "ok");
+    redesenhar();
+  });
 };
 
 /* ============ PARTIDA ============ */

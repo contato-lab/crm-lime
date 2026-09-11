@@ -239,6 +239,23 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // As fontes de negocio que a casa cria. So rotulo e um interruptor.
+    //
+    // NAO TEM DELETE: negocio ja cadastrado aponta pra fonte, e apagar
+    // deixaria a tela mostrando a chave crua no lugar do nome e o Painel
+    // sem a linha inteira. Desligar e ativo:false.
+    match /crm_origens/{id} {
+      allow read: if ok();
+      allow create, update: if ok()
+        && request.resource.data.keys().size() <= 8
+        && request.resource.data.k is string
+        && request.resource.data.k.size() <= 24
+        && request.resource.data.rot is string
+        && request.resource.data.rot.size() <= 40
+        && request.resource.data.ativo is bool;
+      allow delete: if false;
+    }
+
     // Qualquer outro caminho fica fechado.
     match /{document=**} {
       allow read, write: if false;
