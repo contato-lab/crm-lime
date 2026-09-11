@@ -977,7 +977,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.6";
+var VERSAO = "2026-09-11.7";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1140,6 +1140,25 @@ var PERFIS = {
   },
   vendedor: {
     rotulo:"Vendedor",
+    negocios:"gerenciar", contatos:"gerenciar", atividades:"gerenciar",
+    metas:true, acessos:false, exportar:true, home:"hoje"
+  },
+  /* SDR e CLOSER sao os dois lados da mesma venda, e por isso tem o MESMO
+     poder no sistema: os dois mexem em negocio, contato e atividade. O
+     que os separa nao e permissao, e o campo "quem toca" de cada negocio,
+     que decide na fila de quem ele aparece. Perfil que tira poder do SDR
+     faria ele parar de registrar, e negocio nao registrado nao existe.
+
+     "vendedor" continua aqui porque acesso ja criado aponta pra ele. Pra
+     time novo, use sdr ou closer: sao os dois que o placar do Painel
+     sabe somar separado. */
+  sdr: {
+    rotulo:"SDR",
+    negocios:"gerenciar", contatos:"gerenciar", atividades:"gerenciar",
+    metas:true, acessos:false, exportar:true, home:"hoje"
+  },
+  closer: {
+    rotulo:"Closer",
     negocios:"gerenciar", contatos:"gerenciar", atividades:"gerenciar",
     metas:true, acessos:false, exportar:true, home:"hoje"
   },
@@ -1491,6 +1510,52 @@ function podeRegistrarNota(){  return aoMenos("atividades","nota"); }
 function podeRegistrarTudo(){  return aoMenos("atividades","gerenciar"); }
 function podeMexerMeta(){      return !!PERM && PERM.metas === true; }
 function ehAdmin(){            return !!PERM && PERM.acessos === true; }
+
+/* ---------------------------------------------------------------------
+   QUEM TOCA O NEGOCIO
+
+   O time tem dois papeis: quem CAPTA (o SDR, que prospecta e qualifica) e
+   quem FECHA (o closer, que monta a proposta e negocia). O mesmo negocio
+   passa pelas duas maos, e a passagem tem hora marcada em passadoEm.
+
+   POR QUE DOIS CAMPOS, E NAO UM "RESPONSAVEL"
+   Com um campo so, a passagem sobrescreve o nome do SDR e apaga o
+   trabalho dele. No fim do mes ninguem consegue responder quantos leads
+   o SDR trouxe, porque todo negocio fechado esta no nome do closer. Os
+   dois campos ficam, e passadoEm diz qual dos dois esta com a bola AGORA.
+
+   POR QUE A PASSAGEM NAO TEM ESTAGIO FIXO
+   Foi escolha da casa: o SDR passa quando achar que o lead esta pronto,
+   em qualquer etapa. Em troca, o sistema grava em que estagio a passagem
+   aconteceu (passadoNoEstagio), senao nao daria pra comparar um mes com o
+   outro nem perceber que alguem comecou a passar cedo demais.
+
+   Negocio antigo, cadastrado antes disso existir, nao tem nenhum dos
+   campos: ele cai em "o time todo" e continua aparecendo pra todo mundo,
+   em vez de sumir da fila de todo mundo. */
+function donoDe(n){
+  if(!n) return { id:"", nome:"", papel:"time" };
+  if(n.passadoEm && (n.fechaId || n.fechaNome))
+    return { id:n.fechaId || "", nome:n.fechaNome || "", papel:"closer" };
+  if(n.captouId || n.captouNome)
+    return { id:n.captouId || "", nome:n.captouNome || "", papel:"sdr" };
+  return { id:"", nome:"", papel:"time" };
+}
+/* Verdadeiro pro negocio que ainda nao foi passado E tem um SDR no nome. */
+function esperandoPassagem(n){
+  return !!n && !n.passadoEm && !!(n.captouId || n.captouNome);
+}
+/* Esse negocio e meu? Negocio sem dono e de todo mundo, senao ele some da
+   fila de todos e vira o negocio que ninguem trabalha. */
+function meuNegocio(n){
+  var d = donoDe(n);
+  if(d.papel === "time") return true;
+  if(!SESSAO) return false;
+  if(d.id && SESSAO.acessoId) return d.id === SESSAO.acessoId;
+  return !!d.nome && chave(d.nome) === chave(SESSAO.nome || "");
+}
+function souSdr(){   return !!SESSAO && SESSAO.perfil === "sdr"; }
+function souCloser(){ return !!SESSAO && SESSAO.perfil === "closer"; }
 
 // Devolve null quando pode, ou o TEXTO do motivo quando não pode. O mesmo
 // texto vai pro toast do bloqueio e pra linha cinza embaixo do botão,
@@ -2785,13 +2850,37 @@ var AJUDA = {
        "afundar pro fim da lista só por estar sem preço."
   },
 
+  quem_toca: {
+    t: "Quem toca este negócio",
+    x: "Todo negócio passa por duas mãos: quem capta e quem fecha.\n\n" +
+       "Quem cadastra o negócio fica como quem captou. Quando esse negócio estiver pronto " +
+       "pra proposta, o botão Passar pro closer entrega a bola: a partir dali ele aparece " +
+       "na fila de hoje do closer e sai da fila de quem captou.\n\n" +
+       "Os dois nomes ficam guardados pra sempre. É isso que permite dizer, no fim do mês, " +
+       "quantos negócios cada um trouxe e quantos viraram cliente."
+  },
+  placar_captacao: {
+    t: "Placar da captação",
+    x: "Responde se o aperto está em cima ou embaixo do funil.\n\n" +
+       "Poucos captados: falta prospecção. Muitos captados e poucos ganhos: o problema não " +
+       "é trazer gente, é fechar, e prospectar mais só piora.\n\n" +
+       "O negócio conta pelo mês em que foi CAPTADO, não pelo mês em que fechou. Por isso a " +
+       "coluna de ganhos do mês corrente sempre parece baixa: o que entrou esta semana ainda " +
+       "não teve tempo de virar contrato.\n\n" +
+       "Até passar é a mediana de dias entre cadastrar e entregar pro closer. Ela caindo muito " +
+       "de um mês pro outro costuma ser sinal de lead passado cru."
+  },
+
   /* ---------- acessos ---------- */
   perfis: {
     t: "Perfis de acesso",
     x: "Admin: faz tudo, inclusive criar e tirar acesso de gente.\n" +
-       "Vendedor: opera o CRM inteiro, mas não mexe em acessos.\n" +
-       "Gestor: vê tudo e registra observação, mas não move negócio nem mexe em valor.\n\n" +
-       "O perfil decide o que aparece na tela e o que o sistema aceita gravar."
+       "SDR: prospecta e qualifica. Opera o CRM inteiro, menos acessos.\n" +
+       "Closer: monta proposta e fecha. Tem exatamente o mesmo poder do SDR.\n" +
+       "Gestor: vê tudo e registra observação, mas não move negócio nem mexe em valor.\n" +
+       "Vendedor: o perfil antigo, de quando uma pessoa só fazia as duas pontas.\n\n" +
+       "SDR e Closer não são poderes diferentes, são papéis diferentes. Quem separa " +
+       "o trabalho dos dois é o campo Quem toca de cada negócio, não o perfil."
   },
   senha_acesso: {
     t: "Senha de acesso",
@@ -2824,7 +2913,7 @@ var AJUDA = {
     x: "A explicação do sistema inteiro, do começo ao fim, escrita pra quem nunca usou um CRM.\n\n" +
        "Os desenhos dos funis saem do próprio código: se alguém mudar uma etapa amanhã, o desenho " +
        "muda junto. Tutorial que envelhece sem avisar ensina errado.\n\n" +
-       "Se você já opera CRM, pule direto pro passo 3, que é onde está o que este aqui faz de diferente."
+       "Se você já opera CRM, pule direto pros passos 3 e 6, que é onde está o que este aqui faz de diferente."
   }
 };
 
@@ -3008,14 +3097,30 @@ function hjMotivoSemPlano(n){
   return "sem próximo passo marcado, cadastrado há " + d + (d === 1 ? " dia" : " dias");
 }
 
+/* A fila e de QUEM ESTA OLHANDO, nao do escritorio.
+
+   Com SDR e closer no mesmo banco, uma fila unica faz o SDR abrir o dia e
+   ver dez negocios que nao sao dele pra tocar, e o numero gigante da tela
+   deixa de ser uma promessa e vira barulho. Quem quiser ver tudo aperta
+   "do time", que e um filtro visivel, nao um padrao escondido.
+
+   Admin e gestor comecam vendo o time, que e o trabalho deles. Negocio
+   sem dono aparece pra todo mundo em qualquer modo (ver donoDe). */
+var HOJE_SO_MEUS = null;   // null = ainda nao escolhido nesta sessao
+function hjSoMeus(){
+  if(HOJE_SO_MEUS !== null) return HOJE_SO_MEUS;
+  return !(ehAdmin() || (PERM && PERM.negocios === "ver"));
+}
 function filaDeHoje(){
   var hoje = hojeISO();
   var todos = lista("negocios");
   var abertos = [], i, n;
+  var soMeus = hjSoMeus();
 
   for(i = 0; i < todos.length; i++){
     n = todos[i];
     if(n.status !== "aberto") continue;
+    if(soMeus && !meuNegocio(n)) continue;
     // Congelado nao entra em balde nenhum. Congelar é o pedido explicito
     // de parar de cobrar; cobrar assim mesmo ensina a nunca mais congelar,
     // e ai o vendedor bota data falsa e o dado inteiro apodrece.
@@ -3418,7 +3523,8 @@ TELAS.hoje = function(){
   h += '<div class="card">' +
     '<div class="card-head" style="margin-bottom:6px">' +
       '<div>' +
-        '<div class="h3">Fila de hoje' + ajuda("fila_hoje") + '</div>' +
+        '<div class="h3">Fila de hoje' + ajuda("fila_hoje") +
+          (hjSoMeus() ? '' : ' <span class="tag tag-blue" style="vertical-align:middle">do time</span>') + '</div>' +
         '<div class="num" style="font-size:clamp(48px,14vw,68px);color:' +
           (f.total ? "var(--lime)" : "var(--green)") + '">' + f.total + '</div>' +
         '<div class="tiny muted">' +
@@ -3439,6 +3545,8 @@ TELAS.hoje = function(){
          'Serve pra dimensionar o esforço comercial, não é caixa do mês.</div>' : '') +
     '<div style="display:flex;gap:8px;margin-top:13px;flex-wrap:wrap">' +
       '<button class="btn btn-sm" data-a="resumoDia">Copiar o resumo do dia</button>' +
+      '<button class="btn btn-sm btn-ghost" data-a="hjTrocarFila">' +
+        (hjSoMeus() ? "Ver a fila do time" : "Ver só a minha fila") + '</button>' +
       (f.resgate.length
         ? '<button class="btn btn-sm" data-a="hjResgate">Resgate de sexta (' + f.resgateTotal +
           (f.resgateTotal === 1 ? ' negócio' : ' negócios') + ')</button>'
@@ -3781,6 +3889,16 @@ function hjFolhaResumo(txt){
     if(t){ try{ t.focus(); t.select(); }catch(e){} }
   }, 60);
 }
+
+/* O filtro vive so na memoria desta aba, de proposito. Guardar no
+   aparelho faria alguem que espiou a fila do time uma vez abrir o dia
+   seguinte com ela, sem lembrar que trocou, e cobrar negocio que nao e
+   dele. Recarregou, volta pro padrao do perfil. */
+ACOES.hjTrocarFila = function(){
+  HOJE_SO_MEUS = !hjSoMeus();
+  redesenhar();
+  toast(HOJE_SO_MEUS ? "Mostrando só o que é seu" : "Mostrando a fila do time todo", "ok");
+};
 
 /* ============ 07-funil ============ */
 /* =====================================================================
@@ -6073,6 +6191,7 @@ TELAS.negocio = function(){
     '</div>' +
     '<div class="ng-side">' +
       ngBlocoContato(n) +
+      ngBlocoQuemToca(n) +
       ngBlocoIndicacao(n) +
       ngBlocoSaude(n) +
       ngBlocoOutros(n) +
@@ -6080,6 +6199,159 @@ TELAS.negocio = function(){
       ngBlocoValores(n) +
     '</div>' +
   '</div>';
+};
+
+/* ---------------------------------------------------------------------
+   QUEM TOCA ESTE NEGOCIO
+
+   Mostra os dois nomes e o botao da passagem. Fica na coluna lateral,
+   junto de contato e origem, porque e informacao de contexto: quem
+   trabalha o negocio olha isso uma vez e nao volta mais.
+   --------------------------------------------------------------------- */
+function ngBlocoQuemToca(n){
+  var d = donoDe(n);
+  if(d.papel === "time"){
+    /* Negocio de antes da divisao entre SDR e closer. Nao invento um dono
+       pra ele: digo a verdade e ofereco assumir. */
+    return '<div class="card"><div class="sec-title">Quem toca' + ajuda("quem_toca") + '</div>' +
+      '<div class="h2" style="text-transform:none;margin-top:10px">O time todo</div>' +
+      '<div class="small muted2">Esse negócio é de antes da divisão entre captação e fechamento, então aparece na fila de todo mundo.</div>' +
+      (podeEditarNegocios() ?
+        '<div class="pills" style="margin-top:11px">' +
+          '<button class="btn btn-sm" data-a="ngAssumir" data-id="' + esc(n.id) + '">Assumir este negócio</button>' +
+        '</div>' : '') +
+    '</div>';
+  }
+
+  var passado = !!n.passadoEm;
+  var estagioDaPassagem = "";
+  if(passado && n.passadoNoEstagio){
+    var f = FUNIL[n.tipo] || [];
+    for(var i=0;i<f.length;i++) if(f[i].k === n.passadoNoEstagio) estagioDaPassagem = f[i].rot;
+  }
+
+  var h = '<div class="card"><div class="sec-title">Quem toca' + ajuda("quem_toca") + '</div>' +
+    '<div class="h2" style="text-transform:none;margin-top:10px">' +
+      esc(d.nome || "sem nome") +
+      ' <span class="tag ' + (passado ? "tag-green" : "tag-lime") + '" style="vertical-align:middle">' +
+      (passado ? "fechando" : "captando") + '</span></div>';
+
+  if(passado){
+    h += '<div class="small muted2">Captado por ' + esc(n.captouNome || "alguém que não foi informado") +
+         ', passado em ' + esc(dataBR(n.passadoEm)) +
+         (estagioDaPassagem ? ' no estágio ' + esc(estagioDaPassagem) : '') + '.</div>';
+  } else {
+    h += '<div class="small muted2">Ainda em captação. Quando estiver pronto pra proposta, passe pro closer: ' +
+         'ele passa a aparecer na fila de hoje dele, e sai da sua.</div>';
+  }
+
+  if(podeEditarNegocios() && n.status === "aberto"){
+    h += '<div class="pills" style="margin-top:11px">' +
+      (passado
+        ? '<button class="btn btn-sm btn-ghost" data-a="ngPassar" data-id="' + esc(n.id) + '">Trocar quem fecha</button>'
+        : '<button class="btn btn-sm" data-a="ngPassar" data-id="' + esc(n.id) + '">Passar pro closer</button>') +
+      (passado ? '<button class="btn btn-sm btn-ghost" data-a="ngDevolver" data-id="' + esc(n.id) + '">Devolver pra captação</button>' : '') +
+    '</div>';
+  }
+  return h + '</div>';
+}
+
+/* Lista de quem pode fechar. Closer e admin entram; SDR nao, porque a
+   casa decidiu que quem capta nunca fecha, e oferecer o proprio nome no
+   seletor e o jeito mais facil de essa regra morrer na pratica. */
+function ngClosers(){
+  var r = [], i;
+  for(i=0;i<ACESSOS.length;i++){
+    var a = ACESSOS[i];
+    if(a.ativo === false) continue;
+    if(a.perfil === "closer" || a.perfil === "admin" || a.perfil === "vendedor") r.push(a);
+  }
+  return r;
+}
+
+ACOES.ngPassar = function(el){
+  var id = el.getAttribute('data-id'), n = achar("negocios", id);
+  if(!n) return;
+  var lista = ngClosers(), i, op = "";
+  for(i=0;i<lista.length;i++)
+    op += '<option value="' + esc(lista[i].id) + '"' +
+          (n.fechaId === lista[i].id ? ' selected' : '') + '>' + esc(lista[i].nome) + '</option>';
+
+  folha(n.passadoEm ? "Trocar quem fecha" : "Passar pro closer",
+    '<form class="form" id="ngPF" data-a="ngSalvarPassagem" data-id="' + esc(id) + '">' +
+      (lista.length
+        ? '<div class="fld"><label>Quem vai fechar</label>' +
+            '<select class="inp" id="ngPQuem">' + op + '</select>' +
+            '<div class="hint">Só aparece aqui quem tem acesso de Closer ou de Admin.</div></div>'
+        : '<div class="fld"><label>Quem vai fechar</label>' +
+            '<input class="inp" id="ngPNome" maxlength="60" placeholder="Igor" value="' + esc(n.fechaNome || "") + '">' +
+            '<div class="hint">Ainda não tem nenhum acesso de Closer criado, então digite o nome. ' +
+            'Depois de criar o acesso, o nome vira uma opção da lista.</div></div>') +
+      '<div class="fld"><label>O que o closer precisa saber (vai pra linha do tempo)</label>' +
+        '<textarea class="inp" id="ngPNota" maxlength="400" style="min-height:80px" ' +
+          'placeholder="verba de 8 mil por mês, quem decide é a Renata, quer proposta até sexta"></textarea>' +
+        '<div class="hint">Opcional, mas é o que evita o closer repetir a mesma pergunta que você já fez.</div></div>' +
+    '</form>',
+    '<button class="btn btn-ghost" data-a="fecharFolha">Cancelar</button>' +
+    '<button class="btn btn-primary" type="submit" form="ngPF">' + (n.passadoEm ? "Trocar" : "Passar") + '</button>');
+};
+
+ACOES.ngSalvarPassagem = function(f){
+  var id = f.getAttribute('data-id'), n = achar("negocios", id);
+  if(!n){ fecharFolha(); toast("Esse negócio não está mais neste aparelho.", "bad"); return; }
+  var sel = document.getElementById('ngPQuem');
+  var inp = document.getElementById('ngPNome');
+  var nota = String((document.getElementById('ngPNota')||{}).value || "").trim().slice(0,400);
+  var quemId = "", quemNome = "";
+  if(sel){
+    quemId = sel.value || "";
+    for(var i=0;i<ACESSOS.length;i++) if(ACESSOS[i].id === quemId) quemNome = ACESSOS[i].nome;
+  } else {
+    quemNome = String((inp && inp.value) || "").trim().slice(0,60);
+  }
+  if(!quemNome){ toast("Diga quem vai fechar.", "bad"); return; }
+
+  var antes = { fechaId:n.fechaId || "", fechaNome:n.fechaNome || "",
+                passadoEm:n.passadoEm || "", passadoNoEstagio:n.passadoNoEstagio || "" };
+  var jaTinha = !!n.passadoEm;
+  var up = { fechaId:quemId, fechaNome:quemNome };
+  /* A data da passagem so e gravada UMA vez. Trocar de closer depois nao
+     e uma passagem nova: se a data andasse junto, o tempo que o lead
+     levou pra sair da captacao mudaria toda vez que alguem trocasse o
+     nome, e o placar do SDR contaria a troca como merito dele. */
+  if(!jaTinha){ up.passadoEm = hojeISO(); up.passadoNoEstagio = n.estagio || ""; }
+
+  fecharFolha();
+  gravar("crm_negocios", id, up).then(function(){
+    ngNota(id, (jaTinha ? "Quem fecha agora é " + quemNome + "." :
+                          "Passado da captação pro fechamento, com " + quemNome + ".") +
+               (nota ? " " + nota : ""));
+    comDesfazer(jaTinha ? "Quem fecha agora é " + quemNome
+                        : "Passado pro " + quemNome + ". Ele já vê na fila dele.",
+                "crm_negocios", id, antes);
+  });
+};
+
+ACOES.ngDevolver = function(el){
+  var id = el.getAttribute('data-id'), n = achar("negocios", id);
+  if(!n || !n.passadoEm) return;
+  var antes = { fechaId:n.fechaId || "", fechaNome:n.fechaNome || "",
+                passadoEm:n.passadoEm, passadoNoEstagio:n.passadoNoEstagio || "" };
+  gravar("crm_negocios", id, { passadoEm:"", passadoNoEstagio:"" }).then(function(){
+    ngNota(id, "Devolvido pra captação, com " + (n.captouNome || "quem captou") + ".");
+    comDesfazer("Devolvido pra captação.", "crm_negocios", id, antes);
+  });
+};
+
+ACOES.ngAssumir = function(el){
+  var id = el.getAttribute('data-id'), n = achar("negocios", id);
+  if(!n) return;
+  var antes = { captouId:n.captouId || "", captouNome:n.captouNome || "" };
+  gravar("crm_negocios", id, {
+    captouId:(SESSAO && SESSAO.acessoId) || "", captouNome:(SESSAO && SESSAO.nome) || ""
+  }).then(function(){
+    comDesfazer("Assumido. Ele agora aparece na sua fila.", "crm_negocios", id, antes);
+  });
 };
 
 /* ---------------------------------------------------------------------
@@ -8413,6 +8685,7 @@ TELAS.painel = function(){
          pnlBlocoCarteira(N) +
          pnlBlocoPrevisao(N) +
          pnlBlocoSaude(S, N) +
+         pnlBlocoCaptacao(ym) +
          pnlBlocoGanhosPerdas() +
          pnlBlocoEdicoes() +
          pnlBlocoMeta(N);
@@ -8802,6 +9075,112 @@ function pnlBlocoSaude(S, N){
 }
 
 /* ------------------------ 4. GANHOS E PERDAS ------------------------ */
+/* ---------------------------------------------------------------------
+   PLACAR DA CAPTACAO
+
+   A pergunta que esse bloco responde e uma so: o problema esta em cima do
+   funil ou embaixo? Com SDR e closer, "vendemos pouco" tem duas causas
+   opostas, e a correcao de uma piora a outra. Poucos leads captados pede
+   mais prospeccao; muitos leads captados e poucos fechados pede parar de
+   prospectar e cuidar do que ja esta na mesa.
+
+   O QUE ENTRA NA CONTA
+   Um negocio conta pro SDR pelo mes em que ele foi CAPTADO (criadoEm),
+   nao pelo mes em que fechou. Contar pelo fechamento jogaria o merito da
+   captacao de marco no placar de junho, e o SDR passaria meses sem ver o
+   proprio trabalho aparecer.
+
+   O "fechados" desta tela e a parte dos captados NAQUELE mes que ja virou
+   ganho, mesmo que o ganho tenha acontecido depois. E por isso que o
+   numero de um mes recente parece baixo: negocio captado ontem ainda nao
+   teve tempo de fechar, e a linha embaixo do numero diz isso.
+   --------------------------------------------------------------------- */
+function pnlCaptacao(ym){
+  var todos = lista("negocios"), i, n, d;
+  var porPessoa = {}, ordem = [];
+
+  function slot(nome){
+    var k = chave(nome);
+    if(!porPessoa[k]){
+      porPessoa[k] = { nome:nome, captados:0, passados:0, ganhos:0, perdidos:0,
+                       abertos:0, gerado:0, diasAtePassar:[], estagios:{} };
+      ordem.push(k);
+    }
+    return porPessoa[k];
+  }
+
+  for(i=0;i<todos.length;i++){
+    n = todos[i];
+    if(n.arquivado) continue;
+    if(mesDe(n.criadoEm) !== ym) continue;
+    if(!n.captouNome) continue;
+    d = slot(n.captouNome);
+    d.captados++;
+    if(n.passadoEm){
+      d.passados++;
+      var dias = diasEntre(n.criadoEm, n.passadoEm);
+      if(dias >= 0) d.diasAtePassar.push(dias);
+      if(n.passadoNoEstagio) d.estagios[n.passadoNoEstagio] = (d.estagios[n.passadoNoEstagio] || 0) + 1;
+    }
+    if(n.status === "ganho"){ d.ganhos++; d.gerado += valorRefDe(n); }
+    else if(n.status === "perdido") d.perdidos++;
+    else if(n.status === "aberto") d.abertos++;
+  }
+
+  var r = [];
+  for(i=0;i<ordem.length;i++) r.push(porPessoa[ordem[i]]);
+  r.sort(function(a,b){ return b.captados - a.captados; });
+  return r;
+}
+
+function pnlBlocoCaptacao(ym){
+  var linhas = pnlCaptacao(ym);
+  var h = '<div class="card">' +
+    '<div class="card-head"><div>' +
+      '<div class="sec-title">Captação' + ajuda("placar_captacao") + '</div>' +
+      '<div class="sec-sub">Quem trouxe negócio novo em ' + esc(mesBR(ym)) +
+      ', e o que aconteceu com o que cada um trouxe.</div>' +
+    '</div></div>';
+
+  if(!linhas.length){
+    return h + '<div class="empty"><div class="ei">🎣</div>' +
+      '<div class="et">Nenhum negócio captado em ' + esc(mesBR(ym)) + '</div>' +
+      '<div class="ex">Cada negócio cadastrado entra no nome de quem cadastrou. ' +
+      'Este bloco começa a existir no primeiro cadastro do mês.</div></div></div>';
+  }
+
+  h += '<div style="overflow-x:auto"><table class="tb"><thead><tr>' +
+       '<th>Quem captou</th><th class="r">Captados</th><th class="r">Passados</th>' +
+       '<th class="r">Ganhos</th><th class="r">Gerado</th><th class="r">Até passar</th>' +
+       '</tr></thead><tbody>';
+
+  for(var i=0;i<linhas.length;i++){
+    var L = linhas[i];
+    var med = L.diasAtePassar.length ? mediana(L.diasAtePassar) : null;
+    h += '<tr>' +
+      '<td><b>' + esc(L.nome) + '</b><div class="tiny muted">' +
+        L.abertos + (L.abertos === 1 ? ' ainda em jogo' : ' ainda em jogo') +
+        (L.perdidos ? ' · ' + L.perdidos + (L.perdidos === 1 ? ' perdido' : ' perdidos') : '') +
+      '</div></td>' +
+      '<td class="r mono-num">' + L.captados + '</td>' +
+      '<td class="r mono-num">' + L.passados +
+        (L.captados ? '<div class="tiny muted">' + pct((L.passados/L.captados)*100, 0) + '</div>' : '') + '</td>' +
+      '<td class="r mono-num">' + L.ganhos + '</td>' +
+      '<td class="r mono-num">' + (L.gerado ? esc(brlCurto(L.gerado)) : '<span class="muted">-</span>') + '</td>' +
+      '<td class="r mono-num">' + (med === null ? '<span class="muted">-</span>'
+        : (med + (med === 1 ? ' dia' : ' dias') +
+           (L.diasAtePassar.length < 3 ? '<div class="tiny muted">n=' + L.diasAtePassar.length + '</div>' : ''))) + '</td>' +
+    '</tr>';
+  }
+  h += '</tbody></table></div>';
+
+  /* O aviso que evita a leitura errada mais provavel deste bloco. */
+  h += '<div class="tiny muted" style="margin-top:10px">Um negócio conta pelo mês em que foi captado, ' +
+       'não pelo mês em que fechou. Por isso a coluna de ganhos do mês corrente quase sempre parece baixa: ' +
+       'o que entrou esta semana ainda não teve tempo de fechar.</div>';
+  return h + '</div>';
+}
+
 function pnlBlocoGanhosPerdas(){
   var G = pnlGanhosPerdas();
   var h = '<div class="card">' +
@@ -10096,6 +10475,12 @@ ACOES.salvarNovoNegocio = function(form){
     estagio:(FUNIL[tipo][0] || {}).k, status:"aberto",
     origem:NOVO.origem,
     indicadorId:NOVO.indicadorId || "", indicadorNome:NOVO.indicadorNome || "",
+    /* Quem cadastra e quem captou. Nao tem campo pra escolher outra
+       pessoa de proposito: no dia a dia quem prospecta e quem digita sao
+       a mesma pessoa, e um seletor a mais no cadastro so serve pra ser
+       preenchido errado com pressa. Admin corrige depois na ficha. */
+    captouId:(SESSAO && SESSAO.acessoId) || "", captouNome:(SESSAO && SESSAO.nome) || "",
+    fechaId:"", fechaNome:"", passadoEm:"", passadoNoEstagio:"",
     valorRef:0,
     prevFechamento: somaDias(hoje, CICLO_MEDIANO[tipo] || 30),
     prevEstimada: true,
@@ -11068,7 +11453,7 @@ ACOES.acNovo = function(){
         '<input class="inp" id="acNome" maxlength="60" autocomplete="off" placeholder="Comercial"></div>' +
       '<div class="fld"><label>Perfil <span class="req">*</span></label>' +
         '<select class="inp" id="acPerfilNovo">' + opc + '</select>' +
-        '<div class="hint">Vendedor mexe em tudo do comercial. Gestor só vê, e registra Nota. ' +
+        '<div class="hint">SDR e Closer mexem em tudo do comercial, e a diferença entre eles é o papel, não o poder. Gestor só vê, e registra Nota. ' +
         'Admin ainda mexe em acesso.</div></div>' +
       '<div class="fld"><label>WhatsApp pra mandar a senha</label>' +
         '<input class="inp" id="acTel" inputmode="tel" maxlength="20" placeholder="(11) 98765-4321">' +
@@ -11284,7 +11669,7 @@ ACOES.acPerfil = function(el){
         (ultimo ? cadMotivo("É o último admin ativo. Promova outra pessoa a admin antes de " +
                             "rebaixar esse, senão ninguém mais abre esta tela.") : '') +
       '</div>' +
-      '<p class="tiny muted">Vendedor mexe em tudo do comercial. Gestor só vê e registra Nota. ' +
+      '<p class="tiny muted">SDR e Closer mexem em tudo do comercial, e a diferença entre eles é o papel, não o poder. Gestor só vê e registra Nota. ' +
       'Admin faz tudo isso e ainda mexe em acesso. Quem estiver logado pega o perfil novo ' +
       'na próxima vez que abrir.</p>' +
       '<div class="fld"><div class="err" id="apErr"></div></div>' +
@@ -11532,6 +11917,40 @@ function tuFigCiclo(){
   return tuFig(760, 146, d, "O ciclo. Você nunca precisa lembrar de cobrar ninguém: o próximo passo é que puxa o negócio de volta pra fila.");
 }
 
+/* ---------- figura 5: a dupla, captacao e fechamento ---------- */
+function tuFigDupla(){
+  var d = tuCaixa(6, 6, 748, 168, "", "rgba(255,255,255,0.07)", "#141414");
+  /* Duas raias horizontais, uma por papel. A passagem e a seta que sobe
+     de uma pra outra: desenhar as duas na mesma linha esconderia
+     justamente o que este passo explica. */
+  d += tuTexto(22, 40, "🎣  Quem capta", 13, "#C8FF00", 700);
+  d += tuTexto(22, 118, "🤝  Quem fecha", 13, "#00FF88", 700);
+  d += '<line x1="18" y1="88" x2="742" y2="88" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>';
+
+  var capta = ["prospecta", "primeiro contato", "descobre a verba"];
+  var fecha = ["monta a proposta", "negocia", "fecha"];
+  var i, x;
+  for(i=0;i<capta.length;i++){
+    x = 150 + i * 128;
+    d += tuCaixa(x, 22, 116, 38, "", "rgba(200,255,0,0.25)", "rgba(200,255,0,0.10)");
+    d += tuTexto(x + 58, 46, capta[i], 11, "#FFFFFF", 500, "middle");
+    if(i < capta.length - 1) d += tuSeta(x + 118, 41, x + 126);
+  }
+  for(i=0;i<fecha.length;i++){
+    x = 406 + i * 112;
+    d += tuCaixa(x, 100, 100, 38, "", "rgba(0,255,136,0.25)", "rgba(0,255,136,0.08)");
+    d += tuTexto(x + 50, 124, fecha[i], 11, "#FFFFFF", 500, "middle");
+    if(i < fecha.length - 1) d += tuSeta(x + 102, 119, x + 110);
+  }
+  /* a passagem */
+  d += '<path d="M534 62 L534 80 L456 80 L456 96" fill="none" stroke="#FFB800" stroke-width="1.6"/>';
+  d += '<path d="M452 97 L456 105 L460 97Z" fill="#FFB800"/>';
+  d += tuTexto(546, 84, "a passagem, quando o lead está pronto", 11, "#FFB800", 600);
+  d += tuTexto(22, 160, "Os dois nomes ficam no negócio pra sempre, então no fim do mês dá pra dizer quem trouxe e quem fechou.", 10.5, "#ADADAD");
+  return tuFig(760, 180, d,
+    "A dupla. Quem capta trabalha o negócio até achar que está pronto, e aperta o botão de passar. Daí em diante ele é do closer.");
+}
+
 /* ---------- o texto do tutorial ---------- */
 /* Cada passo e um bloco. Titulo curto, um paragrafo de porque, e o que
    fazer. Figura so onde desenho explica melhor que frase. */
@@ -11586,19 +12005,30 @@ TELAS.tutorial = function(){
     'Registrar um toque sem marcar o próximo passo é como anotar um recado e jogar fora.</p>',
     tuFigCiclo());
 
-  h += tuPasso(6, "A fila de hoje, por dentro",
+  h += tuPasso(6, "A dupla: quem capta e quem fecha",
+    '<p>O time trabalha em dois papéis. <b>Quem capta</b> prospecta, faz o primeiro contato e ' +
+    'descobre verba, prazo e quem decide. <b>Quem fecha</b> monta a proposta e negocia.</p>' +
+    '<p>Quem cadastra o negócio entra como quem captou. No bloco <b>Quem toca</b>, dentro do negócio, ' +
+    'tem o botão <b>Passar pro closer</b>. Não existe hora certa pra apertar: é quando você achar que ' +
+    'o lead está pronto. O sistema anota a data e em que etapa a passagem aconteceu.</p>' +
+    '<p class="tiny" style="color:var(--text2)">Depois de passado, o negócio sai da sua fila de hoje e ' +
+    'entra na dele. Os dois nomes ficam guardados, e é isso que faz o placar de Captação, no Painel, ' +
+    'conseguir dizer quantos negócios cada um trouxe e quantos viraram cliente.</p>',
+    tuFigDupla());
+
+  h += tuPasso(7, "A fila de hoje, por dentro",
     '<p>A aba Hoje junta tudo que tem próximo passo pra hoje ou pra trás, mais o que está em silêncio ' +
     'há mais tempo do que a etapa aguenta. Vem ordenado: o mais urgente e mais caro primeiro.</p>',
     tuFigCard());
 
-  h += tuPasso(7, "Indicação, que é de onde vem a casa",
+  h += tuPasso(8, "Indicação, que é de onde vem a casa",
     '<p>Quando um negócio nasce de indicação, anote <b>quem indicou</b>. Não é burocracia. ' +
     'É o que faz a aba <b>Pessoas</b> responder quem realmente traz dinheiro pra dentro, ' +
     'e quem anda sumido e merece uma ligação.</p>' +
     '<p class="tiny" style="color:var(--text2)">Negócio com origem indicação e sem indicador anotado aparece ' +
     'em amarelo na aba Pessoas, pra você completar depois.</p>');
 
-  h += tuPasso(8, "O Painel, e o que cada número quer dizer",
+  h += tuPasso(9, "O Painel, e o que cada número quer dizer",
     '<p>Todo número no Painel tem uma bolinha <b>?</b> do lado. Passe o mouse (ou toque, no celular) ' +
     'e ele explica de onde saiu a conta.</p>' +
     '<p>Duas leituras não confunda: <b>fechado no mês</b> é o que virou contrato neste mês. ' +
@@ -11606,19 +12036,20 @@ TELAS.tutorial = function(){
     '<p class="tiny" style="color:var(--text2)">Média só aparece com 3 casos ou mais. Com menos que isso, ' +
     'o CRM lista os valores um a um, porque média de dois números engana.</p>');
 
-  h += tuPasso(9, "Acessos: quem entra e com que poder",
-    '<p>Só quem é Admin vê essa aba. São três perfis: <b>Admin</b> mexe em tudo e cria gente, ' +
-    '<b>Comercial</b> opera os negócios, e <b>Leitura</b> só olha.</p>' +
+  h += tuPasso(10, "Acessos: quem entra e com que poder",
+    '<p>Só quem é Admin vê essa aba. <b>Admin</b> mexe em tudo e cria gente. ' +
+    '<b>SDR</b> e <b>Closer</b> operam os negócios com exatamente o mesmo poder, e a diferença ' +
+    'entre os dois é o papel, não a permissão. <b>Gestor</b> vê tudo mas só registra observação.</p>' +
     '<p>Leitura é o perfil pra quem quer acompanhar sem risco de mexer sem querer. ' +
     'Quem está em Leitura vê os botões desabilitados com o motivo escrito, em vez de clicar e dar erro.</p>');
 
-  h += tuPasso(10, "A regra de ouro do que escrever aqui",
+  h += tuPasso(11, "A regra de ouro do que escrever aqui",
     '<p>Esta página está aberta pra quem tiver o endereço. Então vale uma régua simples: ' +
     '<b>se você não mandaria num grupo de WhatsApp com 50 pessoas, não escreve aqui.</b></p>' +
     '<p>Nada de CPF, CNPJ, dado bancário, cláusula de contrato ou comentário pessoal sobre alguém. ' +
     'Nome da empresa, valor, etapa e o que foi conversado: isso sim.</p>');
 
-  h += tuPasso(11, "Sem internet, continua funcionando",
+  h += tuPasso(12, "Sem internet, continua funcionando",
     '<p>O CRM guarda o que você fez no próprio aparelho e manda pro servidor quando a conexão voltar. ' +
     'O indicador no topo mostra o estado: sincronizado, gravando, ou pendente.</p>' +
     '<p class="tiny" style="color:var(--text2)">Só não feche o aplicativo com pendência e troque de celular no mesmo minuto. ' +
