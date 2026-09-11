@@ -977,7 +977,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.8";
+var VERSAO = "2026-09-11.9";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -10323,6 +10323,7 @@ document.addEventListener('input', function(ev){
   if(el.id === "nnTitulo"){ if(NOVO) NOVO.tituloTocado = true; return; }
   if(el.id === "ncNome" || el.id === "ncTel"){ ncPintarDup(); return; }
   if(el.id === "nnIndicBusca"){ nnPintarIndic(); return; }
+  if(el.id === "nnContatoBusca"){ nnPintarContatoBusca(); return; }
   if(el.id === "msgTexto"){
     // A lista de campos que faltam so e refeita quando a lista MUDA. Refazer
     // a cada tecla custa nada, mas apagaria o que estiver sendo digitado
@@ -10407,6 +10408,7 @@ function abrirNovoNegocio(pre){
     indicadorId: pre.indicadorId || "",
     indicadorNome: "",
     contatoId: pre.contatoId || "",
+    contatoNome: "",
     tituloTocado: false
   };
   NN_SALVANDO = false;
@@ -10430,6 +10432,28 @@ function abrirNovoNegocio(pre){
         '<input class="inp" id="nnEmpresa" autocomplete="off" maxlength="120" ' +
           'placeholder="Marroca Editora" value="' + esc(empresa) + '">' +
         '<div id="nnDup"></div>' +
+      '</div>' +
+
+      /* CONTATO NO PROPRIO CADASTRO.
+         Antes o negocio nascia so com o nome da empresa, e a pessoa com
+         quem se fala era uma ficha separada, criada em outra tela. Na
+         pratica ninguem ia la: o negocio ficava sem telefone, o botao de
+         WhatsApp da fila nascia desligado, e o primeiro passo do CRM
+         (falar com alguem) era o unico que ele nao ajudava a dar. */
+      '<div class="fld" id="nnContatoBloco">' +
+        '<label>Com quem você fala</label>' +
+        '<div id="nnContatoEscolhido"></div>' +
+        '<input class="inp" id="nnContatoBusca" autocomplete="off" maxlength="120" ' +
+          'placeholder="nome da pessoa, mesmo que ela ainda não exista aqui">' +
+        '<div id="nnContatoOut"></div>' +
+        '<div class="grid2" id="nnContatoCampos" style="margin-top:8px">' +
+          '<input class="inp" id="nnTel" type="tel" inputmode="tel" maxlength="20" ' +
+            'autocomplete="off" placeholder="(11) 97777-0000">' +
+          '<input class="inp" id="nnEmail" type="email" maxlength="120" ' +
+            'autocomplete="off" placeholder="nome@empresa.com.br">' +
+        '</div>' +
+        '<div class="hint">Tudo opcional, mas sem telefone com DDD o botão de WhatsApp ' +
+        'desse negócio nasce desligado.</div>' +
       '</div>' +
 
       '<div class="fld">' +
@@ -10475,7 +10499,7 @@ function abrirNovoNegocio(pre){
   // A folha ja existe no DOM aqui, entao os blocos que dependem do estado
   // sao pintados na sequencia, sem esperar render nenhum.
   nnPintarTipos(); nnPintarPrev(); nnPintarOrigens(); nnPintarIndicBloco();
-  nnPintarProx(); nnPintarTitulo(); nnPintarDup();
+  nnPintarContatoBloco(); nnPintarProx(); nnPintarTitulo(); nnPintarDup();
 }
 
 function nnPintarTipos(){
@@ -10531,8 +10555,85 @@ function nnPintarOrigens(){
 ACOES.nnOrigem = function(el){
   if(!NOVO) return;
   NOVO.origem = el.getAttribute('data-k');
-  nnPintarOrigens(); nnPintarIndicBloco();
+  nnPintarOrigens(); nnPintarIndicBloco(); nnPintarContatoBloco();
 };
+
+/* ---------------------------------------------------------------------
+   O CONTATO DENTRO DO CADASTRO DE NEGOCIO
+
+   Duas portas no mesmo campo: achar quem ja existe, ou escrever um nome
+   novo. Quem ja existe entra so pelo id, e os campos de telefone e
+   e-mail viram complemento da ficha dele, nunca copia solta: telefone
+   copiado pro negocio e telefone que envelhece em dois lugares.
+   --------------------------------------------------------------------- */
+function nnPintarContatoBloco(){
+  if(!NOVO) return;
+  var esc1 = document.getElementById('nnContatoEscolhido');
+  var inp  = document.getElementById('nnContatoBusca');
+  var out  = document.getElementById('nnContatoOut');
+  var cps  = document.getElementById('nnContatoCampos');
+  if(!esc1 || !inp || !out) return;
+
+  if(NOVO.contatoId){
+    var c = contatoPorId(NOVO.contatoId);
+    var falta = c && !c.tel;
+    esc1.innerHTML = '<div class="pills"><span class="pill on">' +
+        esc((c && c.nome) || NOVO.contatoNome || "contato") + '</span>' +
+      '<button type="button" class="btn btn-sm btn-ghost" data-a="nnLimparContato">trocar</button></div>' +
+      (c && (c.tel || c.email)
+        ? '<div class="tiny muted" style="margin-top:5px">' +
+            esc([c.tel ? foneBR(c.tel) : "", c.email || ""].filter(Boolean).join(" · ")) + '</div>'
+        : '');
+    inp.hidden = true; out.innerHTML = "";
+    /* Ficha antiga sem telefone: os campos continuam abertos pra
+       completar agora, que e quando a pessoa tem o dado na mao. */
+    if(cps) cps.hidden = !falta;
+  } else {
+    esc1.innerHTML = "";
+    inp.hidden = false;
+    if(cps) cps.hidden = false;
+  }
+}
+ACOES.nnLimparContato = function(){
+  if(!NOVO) return;
+  NOVO.contatoId = ""; NOVO.contatoNome = "";
+  nnPintarContatoBloco();
+  var inp = document.getElementById('nnContatoBusca');
+  if(inp){ inp.value = ""; try{ inp.focus(); }catch(e){} }
+};
+ACOES.nnEscolherContato = function(el){
+  if(!NOVO) return;
+  var c = contatoPorId(el.getAttribute('data-id'));
+  if(!c) return;
+  NOVO.contatoId = c.id; NOVO.contatoNome = c.nome;
+  var emp = document.getElementById('nnEmpresa');
+  if(emp && !emp.value.trim() && c.empresa){ emp.value = c.empresa; nnPintarTitulo(); }
+  nnPintarContatoBloco();
+};
+function nnPintarContatoBusca(){
+  var inp = document.getElementById('nnContatoBusca');
+  var out = document.getElementById('nnContatoOut');
+  if(!inp || !out) return;
+  var q = inp.value.trim();
+  if(q.length < 2){ out.innerHTML = ""; return; }
+
+  var achados = buscar(q).contatos, h = "", i;
+  for(i=0;i<achados.length;i++){
+    var c = achados[i];
+    var sub = [c.cargo, c.empresa, c.tel ? foneBR(c.tel) : ""].filter(Boolean).join(" · ");
+    h += '<button type="button" class="search-it" data-a="nnEscolherContato" data-id="' + esc(c.id) + '">' +
+      '<span style="flex:1;min-width:0">' +
+        '<span class="t truncate" style="display:block">' + esc(c.nome) + '</span>' +
+        '<span class="s truncate" style="display:block">' + esc(sub || "sem telefone e sem e-mail") + '</span>' +
+      '</span></button>';
+  }
+  /* Sem botao de "criar" aqui de proposito: o nome escrito no campo ja
+     vira contato no Salvar, junto com o negocio. Um botao a mais so
+     serviria pra gravar duas vezes e nascer contato repetido. */
+  if(!h) h = '<div class="tiny muted" style="padding:7px 2px">Ninguém com esse nome ainda. ' +
+             'Pode deixar escrito assim: a ficha é criada junto com o negócio.</div>';
+  out.innerHTML = h;
+}
 
 function nnPintarIndicBloco(){
   var b = document.getElementById('nnIndicBloco');
@@ -10719,15 +10820,55 @@ ACOES.salvarNovoNegocio = function(form){
 
   var titulo = (document.getElementById('nnTitulo').value || "").trim() || nnTituloAuto();
   var tipo = NOVO.tipo;
-  var ct = NOVO.contatoId ? contatoPorId(NOVO.contatoId) : null;
-  var ctNome = ct ? ct.nome : "";
   var id = idNovo("n");
   var hoje = hojeISO();
+
+  /* ---- o contato, junto com o negocio ----
+     Tres caminhos: escolheu alguem que ja existe, escreveu um nome novo,
+     ou nao preencheu nada. Nenhum deles pode impedir o negocio de nascer:
+     o telefone do cliente as vezes so aparece na segunda conversa, e um
+     cadastro que trava por isso empurra o negocio pro caderno. */
+  var telTxt   = String((document.getElementById('nnTel')||{}).value || "").trim();
+  var emailTxt = String((document.getElementById('nnEmail')||{}).value || "").trim();
+  var telOk   = soDigito(telTxt).length >= 10;   // 10 digitos = DDD mais numero
+  var emailOk = emailTxt.indexOf("@") > 0 && emailTxt.indexOf(".") > 0;
+  if(telTxt && !telOk){
+    falha("Esse telefone está sem DDD. Escreva com os 2 dígitos do DDD, ou deixe em branco.");
+    return;
+  }
+  if(emailTxt && !emailOk){ falha("Esse e-mail não parece um e-mail. Confira ou deixe em branco."); return; }
+
+  var ct = NOVO.contatoId ? contatoPorId(NOVO.contatoId) : null;
+  var ctNovo = null, ctAtualiza = null;
+  var nomeDigitado = String((document.getElementById('nnContatoBusca')||{}).value || "").trim();
+
+  if(ct){
+    /* Ficha que ja existe so RECEBE o que falta. Sobrescrever telefone
+       antigo com o que alguem digitou com pressa apaga o numero bom. */
+    var up = {};
+    if(telOk && !ct.tel) up.tel = soDigito(telTxt);
+    if(emailOk && !ct.email) up.email = emailTxt.slice(0,120);
+    if(up.tel || up.email) ctAtualiza = { id:ct.id, up:up };
+  } else if(nomeDigitado.length >= 2 && !motivoBloqueio("crm_contatos")){
+    var cid = idNovo("c");
+    ctNovo = {
+      id:cid, nome:nomeDigitado.slice(0,120), nomeChave:chave(nomeDigitado),
+      empresa:empresa.slice(0,120), empresaChave:chave(empresa), cargo:"",
+      tel: telOk ? soDigito(telTxt) : "",
+      email: emailOk ? emailTxt.slice(0,120) : "",
+      ehIndicador:false, acordo:"", obs:"",
+      busca: chave([nomeDigitado, empresa, emailTxt].join(" ")),
+      criadoEm:hoje, criadoPor:(SESSAO && SESSAO.nome) || "", arquivado:false
+    };
+    ct = ctNovo;
+  }
+  var ctNome = ct ? ct.nome : "";
+  var ctTel  = ct ? (ctAtualiza && ctAtualiza.up.tel ? ctAtualiza.up.tel : (ct.tel || "")) : "";
 
   var n = {
     id:id, tipo:tipo, titulo:titulo.slice(0,120),
     empresa:empresa.slice(0,120), empresaChave:chave(empresa),
-    contatoId: ct ? ct.id : "", contatoNome: ctNome, contatoTel: ct ? (ct.tel||"") : "",
+    contatoId: ct ? ct.id : "", contatoNome: ctNome, contatoTel: ctTel,
     estagio:(FUNIL[tipo][0] || {}).k, status:"aberto",
     origem:NOVO.origem,
     indicadorId:NOVO.indicadorId || "", indicadorNome:NOVO.indicadorNome || "",
@@ -10783,10 +10924,25 @@ ACOES.salvarNovoNegocio = function(form){
   var ativId = idAtiv();
 
   NN_SALVANDO = true;
-  // Duas escritas: o negocio e a atividade de criacao. A atividade existe
-  // pra timeline nao comecar vazia, que é o que faz a tela parecer quebrada
-  // no primeiro negocio de cada pessoa.
-  gravar("crm_negocios", id, n)
+  // Tres escritas no maximo: o contato (quando e novo ou ganhou dado),
+  // o negocio, e a atividade de criacao. A atividade existe pra timeline
+  // nao comecar vazia, que é o que faz a tela parecer quebrada no
+  // primeiro negocio de cada pessoa.
+  //
+  // O CONTATO VAI PRIMEIRO de proposito: o negocio guarda o id dele, e
+  // negocio apontando pra ficha que nao existe e o tipo de furo que so
+  // aparece semanas depois, quando alguem clica em "ver ficha" e nao
+  // acontece nada.
+  //
+  // Escrito como um encadeamento que COMECA numa gravacao de verdade, e
+  // nao com Promise.resolve() na frente: o Promise nativo so resolve
+  // depois que a pilha esvazia, e a bancada, que roda num motor sem
+  // microtask, veria o cadastro nao gravar nada.
+  function gravarONegocio(){ return gravar("crm_negocios", id, n); }
+  var antes = ctNovo     ? gravar("crm_contatos", ctNovo.id, ctNovo).then(gravarONegocio)
+            : ctAtualiza ? gravar("crm_contatos", ctAtualiza.id, ctAtualiza.up).then(gravarONegocio)
+            : gravarONegocio();
+  antes
     .then(function(){
       ativ.id = ativId;
       empurrarTimeline(id, ativ);           // entra na timeline local sem leitura
