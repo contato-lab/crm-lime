@@ -872,7 +872,7 @@ function atualizaAvisoFila(){
    negocio no banco e regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.1";
+var VERSAO = "2026-09-11.2";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1065,8 +1065,18 @@ var SAL = "lime-crm-2026::";
    `printf 'lime-crm-2026::a-senha-nova' | shasum -a 256` e troca o valor
    abaixo (a senha entra em minuscula e sem espaco nas pontas, que e como
    a funcao sha256() normaliza antes de comparar). */
+/* O id e VAZIO de proposito, e isso nao e descuido.
+   Este acesso mora no codigo, nao no banco: ele nao tem, e nao pode ter,
+   documento em crm_acessos. Id vazio garante que nenhum caminho de
+   gravacao consiga mirar nele por engano.
+   O valor antigo era "__recuperacao__", e o Firestore RESERVA todo id que
+   casa com __alguma_coisa__. Quem entrava pela recuperacao e tentava
+   trocar a propria senha levava "Resource id is invalid because it is
+   reserved", uma mensagem do banco que nao explica nada pra quem esta na
+   tela. A mesma armadilha ja tinha mordido a migracao do conteudo em
+   agosto de 2026. */
 var ACESSO_RECUPERACAO = {
-  id:"__recuperacao__", nome:"Recuperacao", perfil:"admin", ativo:true,
+  id:"", nome:"Recuperacao", perfil:"admin", ativo:true,
   hash:"1edee7f07939b870233dc61c896f5a74cab4f2d19f83afaee1ea733a5467cd61"
 };
 
@@ -1470,6 +1480,19 @@ function esvaziarOutbox(){
 function gravar(colecao, id, dados){
   var motivo = motivoBloqueio(colecao, dados);
   if(motivo){ toast(motivo, "bad"); return Promise.reject(new Error(motivo)); }
+
+  // O Firestore RESERVA todo id que casa com __alguma_coisa__, e recusa a
+  // gravacao com "Resource id is invalid because it is reserved", que na
+  // tela nao explica nada. Ja mordeu duas vezes nesta casa: a migracao do
+  // conteudo em agosto de 2026, e o acesso de recuperacao em setembro.
+  // Barrar aqui transforma um erro do banco num erro nosso, com nome.
+  if(!id || /^__.*__$/.test(String(id))){
+    var m = !id ? "Tentei gravar sem identificador."
+                : 'O identificador "' + id + '" e reservado pelo banco e nao pode ser usado.';
+    console.error(m + " colecao: " + colecao);
+    toast(m, "bad");
+    return Promise.reject(new Error(m));
+  }
 
   if(SESSAO) dados.alteradoPor = SESSAO.nome;
 
@@ -2143,7 +2166,28 @@ ACOES.baixarBackup = function(){
   toast("Backup baixado", "ok");
 };
 
+ACOES.irAcessos = function(){ fecharFolha(); ir("acessos"); };
+
 ACOES.minhaSenha = function(){
+  // Quem entrou pela recuperacao NAO tem senha propria pra trocar: aquela
+  // senha mora no codigo e so muda subindo arquivo novo. Antes a tela
+  // deixava digitar, tentava gravar, e o banco devolvia um erro tecnico
+  // que nao explicava nada. Agora o caminho certo aparece antes de a
+  // pessoa perder tempo digitando.
+  if(SESSAO && SESSAO.recuperacao){
+    folha("Trocar a minha senha",
+      '<p class="muted2">Voce entrou pela <b>senha de recuperacao</b>, que fica escrita no ' +
+      'codigo do sistema e nao pertence a ninguem. Ela existe so pra destravar o acesso ' +
+      'quando nao ha mais nenhum login valido.</p>' +
+      '<p class="muted2" style="margin-top:10px">Pra ter senha propria, crie o seu acesso ' +
+      'em Acessos, saia, e entre com ele. Dai este botao passa a funcionar.</p>' +
+      '<div class="honesto">Trocar a senha de recuperacao em si e outra coisa: ela nao esta ' +
+      'guardada em lugar nenhum, so o resumo criptografico dela. Mudar exige gerar um resumo ' +
+      'novo e subir o arquivo de novo.</div>',
+      '<button class="btn btn-ghost" data-a="fecharFolha">Fechar</button>' +
+      (ehAdmin() ? '<button class="btn btn-primary" data-a="irAcessos">Ir pra Acessos</button>' : ''));
+    return;
+  }
   folha("Trocar a minha senha",
     '<form class="form" data-a="salvarMinhaSenha">' +
       '<div class="fld"><label>Senha nova</label>' +
@@ -2160,7 +2204,14 @@ ACOES.salvarMinhaSenha = function(){
   var err = document.getElementById('msErr');
   if(a.length < 8){ err.textContent = "Muito curta. Use pelo menos 8."; return; }
   if(a !== b){ err.textContent = "As duas nao batem."; return; }
-  if(!SESSAO.acessoId){ err.textContent = "Voce entrou pela senha de recuperacao, que so muda no codigo. Crie um acesso seu em Acessos."; return; }
+  // Rede de seguranca. A checagem que vale e a de SESSAO.recuperacao, nao
+  // a de acessoId vazio: o acesso de recuperacao ja teve id preenchido no
+  // passado, e so por isso este caminho deixou passar uma gravacao que o
+  // banco recusou com um erro incompreensivel na tela.
+  if(!SESSAO || SESSAO.recuperacao || !SESSAO.acessoId){
+    err.textContent = "Voce entrou pela senha de recuperacao, que nao tem senha propria pra trocar. Crie o seu acesso em Acessos e entre com ele.";
+    return;
+  }
   sha256(a).then(function(h){
     return gravar("crm_acessos", SESSAO.acessoId, { hash:h });
   }).then(function(){ fecharFolha(); toast("Senha trocada", "ok"); })
