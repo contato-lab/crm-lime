@@ -988,7 +988,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.11";
+var VERSAO = "2026-09-11.12";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -12829,8 +12829,13 @@ TELAS.funis = function(){
   }
 
   /* #/funis/novo cai direto no formulario, que e pra onde o "+" de
-     Configuracoes e o "+" da tela de Funil apontam. */
-  if(ROTA.id === "novo") DEPOIS.push(function(){ fnFolha(null); });
+     Configuracoes e o "+" da tela de Funil apontam. A rota e limpa antes
+     de abrir, senao um redesenho posterior reabre o formulario vazio por
+     cima do que a pessoa fez. */
+  if(ROTA.id === "novo") DEPOIS.push(function(){
+    if(location.hash.indexOf("/novo") > -1) location.hash = "#/funis";
+    fnFolha(null);
+  });
 
   var h = '<div class="card-head" style="margin-bottom:0"><div>' +
     '<div class="sec-title">Funis' + ajuda("funis") + '</div>' +
@@ -13246,8 +13251,18 @@ TELAS.modelos = function(){
   var bloq = motivoBloqueio("crm_modelos");
 
   /* #/modelos/novo cai direto no formulario. E o destino dos atalhos "+"
-     espalhados pelo sistema: dois cliques viram um. */
-  if(ROTA.id === "novo" && podeMexer) DEPOIS.push(function(){ mdFolhaEditar(null); });
+     espalhados pelo sistema: dois cliques viram um.
+
+     A ROTA E LIMPA ANTES DE ABRIR. Sem isso o endereco continua sendo
+     "/novo" enquanto a folha esta aberta, e qualquer redesenho que
+     acontecesse depois (salvar, sincronizar, voltar de outra aba)
+     reabriria um formulario vazio por cima do que a pessoa acabou de
+     fazer. Trocar o hash aqui nao fecha a folha: o redesenho so refaz o
+     conteudo da tela atras dela. */
+  if(ROTA.id === "novo" && podeMexer) DEPOIS.push(function(){
+    if(location.hash.indexOf("/novo") > -1) location.hash = "#/modelos";
+    mdFolhaEditar(null);
+  });
 
   var h = '<div class="card-head" style="margin-bottom:0"><div>' +
     '<div class="sec-title">Modelos de mensagem' + ajuda("modelos") + '</div>' +
