@@ -7103,7 +7103,7 @@ function pesEstat(valores, fmt){
   // "mediana de 9" se le como se 9 fosse o valor. O tamanho da amostra
   // precisa vir com a unidade dele, que é quantidade de negócios.
   return '<b>' + fmt(m) + '</b> <span class="tiny" style="color:var(--text3)' + (peq ? ';opacity:.7' : '') + '">' +
-         (peq ? 'mediana, n=' + v.length : 'mediana de ' + pesQtd(v.length, "negocio", "negocios")) + '</span>';
+         (peq ? 'mediana, n=' + v.length : 'mediana de ' + pesQtd(v.length, "negócio", "negócios")) + '</span>';
 }
 
 /* Ação sem permissão fica VISÍVEL e DESABILITADA, com o motivo embaixo em
@@ -7288,8 +7288,8 @@ function pesViewTodos(contatos){
     var nNeg = porContato[c.id] || 0;
     var r = porInd[c.id];
     var selo = c.ehIndicador
-      ? '<span class="tag tag-lime">Indicador</span>' + (r ? ' <span class="tiny muted">' + pesQtd(r.n,"indicacao","indicacoes") + '</span>' : ' <span class="tiny muted">ainda sem indicação</span>')
-      : (r ? '<span class="tiny muted">' + pesQtd(r.n,"indicacao","indicacoes") + ', sem a marca de indicador</span>' : '<span class="muted">-</span>');
+      ? '<span class="tag tag-lime">Indicador</span>' + (r ? ' <span class="tiny muted">' + pesQtd(r.n,"indicação","indicações") + '</span>' : ' <span class="tiny muted">ainda sem indicação</span>')
+      : (r ? '<span class="tiny muted">' + pesQtd(r.n,"indicação","indicações") + ', sem a marca de indicador</span>' : '<span class="muted">-</span>');
 
     linhas += `<tr data-a="ir" data-r="pessoa/${esc(c.id)}">
       <td><div class="cel-nome">${esc(c.nome)}</div><div class="cel-sub">${esc(c.cargo || "cargo não informado")}</div></td>
@@ -7308,7 +7308,7 @@ function pesViewTodos(contatos){
         ${c.ehIndicador ? '<span class="tag tag-lime">Indicador</span>' : ''}
       </div>
       <div class="tiny muted" style="margin-top:7px">
-        ${c.tel ? esc(foneBR(c.tel)) : "sem telefone"} · ${pesQtd(nNeg,"negócio","negócios")}${r ? " · " + pesQtd(r.n,"indicacao","indicacoes") : ""}
+        ${c.tel ? esc(foneBR(c.tel)) : "sem telefone"} · ${pesQtd(nNeg,"negócio","negócios")}${r ? " · " + pesQtd(r.n,"indicação","indicações") : ""}
       </div>
     </div>`;
   }
@@ -7506,7 +7506,7 @@ function pesBlocoEsfriando(rank){
         <div style="min-width:0">
           <div class="cel-nome">${esc(r.nome)}</div>
           <div class="cel-sub">${esc(r.empresa || "sem empresa")}${r.ultimaEm ? ", última indicação em " + esc(dataBR(r.ultimaEm)) + " (" + pesDias(r.diasSemIndicar) + " atrás)" : ""}</div>
-          <div class="tiny muted" style="margin-top:5px">${pesQtd(r.n,"indicacao","indicacoes")}, ${pesQtd(r.ganhos,"virou","viraram")} cliente, ${esc(brl(r.gerado))} gerados${r.acordo ? " · acordo: " + esc(r.acordo) : ""}</div>
+          <div class="tiny muted" style="margin-top:5px">${pesQtd(r.n,"indicação","indicações")}, ${pesQtd(r.ganhos,"virou","viraram")} cliente, ${esc(brl(r.gerado))} gerados${r.acordo ? " · acordo: " + esc(r.acordo) : ""}</div>
         </div>
         <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:flex-start">
           ${pesBotao("Pedir indicação","pessoaPedirIndicacao",{ id:r.id },"btn-primary",semTel)}
@@ -7572,7 +7572,7 @@ function pesBlocoComparativo(){
       // Dizer "nenhum negócio de outra origem fechou ainda" seria falso:
       // eles fecharam, todos perdidos, e o bloco ao lado mostra o número.
       partes.push("ganha " + pct(a.taxa,0) + " das vezes, e nenhum dos " +
-                  pesQtd(b.nFech, "negocio", "negocios") + " de outra origem foi ganho");
+                  pesQtd(b.nFech, "negócio", "negócios") + " de outra origem foi ganho");
     }
   }
   if(a.ciclos.length >= 3 && b.ciclos.length >= 3){
