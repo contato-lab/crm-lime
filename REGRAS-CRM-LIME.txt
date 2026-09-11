@@ -134,7 +134,10 @@ service cloud.firestore {
     match /crm_tarefas/{id} {
       allow read: if ok();
       allow create, update: if ok() && carimbado()
-        && request.resource.data.keys().size() <= 20
+        // 25 e nao 20: a tarefa ganhou hora, responsavel e anotacao na
+        // reforma de 11/09/2026, e ficar raspando o teto e como o
+        // documento passou a ser recusado em silencio uma vez.
+        && request.resource.data.keys().size() <= 25
         && request.resource.data.texto is string
         && request.resource.data.texto.size() <= 160
         && request.resource.data.feita is bool;
@@ -230,7 +233,9 @@ service cloud.firestore {
         && request.resource.data.rot.size() <= 40
         && request.resource.data.txt is string
         && request.resource.data.txt.size() <= 1200
-        && request.resource.data.quando in ['sempre','agencia','patrocinio','indicacao','contato'];
+        // "indicacao" fica na lista so por causa de modelo gravado antes
+        // da reforma de origem; o valor novo e "trouxe".
+        && request.resource.data.quando in ['sempre','agencia','patrocinio','trouxe','indicacao','contato'];
       allow delete: if false;
     }
 

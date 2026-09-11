@@ -988,7 +988,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.12";
+var VERSAO = "2026-09-11.13";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1073,6 +1073,16 @@ var EDICOES = [
 
 var COTAS = ["master","ouro","prata","bronze","apoio","permuta","outra"];
 
+/* As cinco origens tem o MESMO peso no sistema. Isso precisou ser dito
+   em voz alta porque por muito tempo nao foi verdade: a indicacao tinha
+   tela propria, dois dos quatro tipos de tarefa, quatro dos nove modelos
+   de mensagem e a unica analise comparativa que existia. Prospeccao
+   ativa, que hoje e o canal principal da casa, nao tinha nada.
+
+   A regra daqui pra frente: nenhuma origem ganha bloco, botao, modelo ou
+   tarefa que as outras nao tenham. O que a indicacao tem de proprio e um
+   DADO, nao um privilegio: a pessoa que trouxe o negocio. E esse dado
+   agora vale pra qualquer origem (ver "quem trouxe" no nucleo). */
 var ORIGENS = [
   ["indicacao",    "Indicação"],
   ["cliente_atual","Cliente atual"],
@@ -1129,11 +1139,37 @@ var TIPOS_ATIV = [
 // tipo "estagio" existe no banco mas não é escolhível: o sistema grava sozinho
 var IC_ESTAGIO = "→";
 
+/* TIPOS DE TAREFA.
+
+   Antes eram quatro, e DOIS deles eram de indicacao (avisar quem indicou
+   e pedir indicacao), enquanto prospeccao ativa nao tinha nenhum. Pior:
+   pedir_indicacao nunca foi criado por ninguem, existia so na constante.
+
+   A lista agora tem duas metades declaradas:
+
+   MAO: o que uma pessoa escolhe ao criar tarefa. Sao os mesmos verbos
+   que RD Station, Pipedrive, HubSpot, Agendor e Ploomes usam, porque o
+   vendedor ja chega sabendo. Ligacao, e-mail e tarefa generica aparecem
+   nos cinco produtos; visita e WhatsApp sao marca do mercado brasileiro
+   e estao no RD e no Agendor.
+
+   AUTO: o que o sistema cria sozinho. Nao aparece no seletor, so no
+   rotulo da tarefa ja criada, senao a pessoa escolhe "renovacao" numa
+   tarefa que nao renova nada. */
 var TIPOS_TAREFA = [
-  { k:"avisar_indicador", rot:"Avisar quem indicou" },
-  { k:"retomar",          rot:"Retomar negócio" },
-  { k:"renovacao",        rot:"Renovação de contrato" },
-  { k:"pedir_indicacao",  rot:"Pedir indicação" }
+  { k:"tarefa",   rot:"Tarefa",    ic:"☑", mao:true },
+  { k:"ligacao",  rot:"Ligação",   ic:"☎", mao:true },
+  { k:"email",    rot:"E-mail",    ic:"✉", mao:true },
+  { k:"reuniao",  rot:"Reunião",   ic:"👥", mao:true },
+  { k:"visita",   rot:"Visita",    ic:"🚗", mao:true },
+  { k:"whats",    rot:"WhatsApp",  ic:"💬", mao:true },
+  /* Criadas pelo sistema. retorno substitui o antigo avisar_indicador:
+     o nome velho dizia "indicador", e agora quem trouxe o negocio pode
+     ter vindo de qualquer origem. Documento antigo com o tipo velho
+     continua abrindo, ver rotTarefa no nucleo. */
+  { k:"retorno",   rot:"Dar retorno a quem trouxe" },
+  { k:"retomar",   rot:"Retomar negócio" },
+  { k:"renovacao", rot:"Renovação de contrato" }
 ];
 
 var MOTIVOS_ADIAR    = ["Cliente pediu","Não consegui contato","Dependo de terceiro","Foi minha falha"];
@@ -1255,7 +1291,13 @@ var TIMELINE_PAGINA = 10;
    existe não pode travar justamente o negócio de maior ticket.
    --------------------------------------------------------------------- */
 var MODELOS = [
-  { k:"m1", rot:"Primeiro contato por indicação", quando:"indicacao",
+  /* PRIMEIRO CONTATO, um por caminho de entrada. Antes existia so o de
+     indicacao, entao quem prospectava, ia a evento ou recebia lead do
+     site abria o CRM e nao tinha texto nenhum pra comecar. */
+  { k:"m0", rot:"Primeiro contato, prospecção", quando:"sempre",
+    txt:"Oi {nome}, aqui é {vendedor} da Agência Lime. Vou direto ao ponto: a gente cuida de mídia e tráfego pago, e o que eu faço primeiro é entender onde está o gargalo da {empresa} antes de propor qualquer coisa. Se não for o momento, me fala que eu não insisto. Se for, consegue 15 minutos essa semana?" },
+
+  { k:"m1", rot:"Primeiro contato por indicação", quando:"trouxe",
     txt:"Oi {nome}, aqui é {vendedor} da Agência Lime. O {indicador} falou de vocês e pediu pra eu te procurar. A gente cuida de mídia e tráfego pago, e o que eu faço primeiro é entender onde está o gargalo antes de propor qualquer coisa. Consegue 15 minutos essa semana? Pode ser quarta às 10h ou quinta às 16h, o que for melhor pra você." },
 
   { k:"m2", rot:"Proposta enviada (agência)", quando:"agencia",
@@ -1279,13 +1321,13 @@ var MODELOS = [
      RECEBE, e aqui quem recebe é o indicador, então {nome} sairia com o
      nome dele mesmo no meio da frase, dizendo que ele está esperando
      resposta dele próprio. */
-  { k:"m4b", rot:"Pedir um empurrão a quem indicou", quando:"indicacao",
+  { k:"m4b", rot:"Pedir um empurrão a quem trouxe", quando:"trouxe",
     txt:"{indicador}, tudo certo? Aquela conversa com a {empresa} que você me apresentou travou um pouco, ainda estou esperando um retorno de lá. Se você falar com eles nesses dias e puder dar uma palavra, ajuda demais. E se você sentir que não é o momento deles, me fala também, que eu paro de insistir." },
 
   { k:"m5", rot:"Pedir indicação", quando:"contato",
     txt:"{indicador}, pergunta rápida. Tem alguém que você conhece que está precisando resolver marketing ou mídia e que faria sentido eu conversar? Não precisa apresentar nem nada, só me passa o nome que eu procuro e falo que veio de você." },
 
-  { k:"m6", rot:"Agradecer quem indicou", quando:"contato",
+  { k:"m6", rot:"Agradecer quem trouxe", quando:"trouxe",
     txt:"{indicador}, fechamos com a {empresa}. Valeu demais pela indicação, foi você que abriu essa porta. Qualquer coisa que eu puder fazer do seu lado é só chamar." },
 
   { k:"m7", rot:"Vespera de reunião", quando:"sempre",
@@ -1730,6 +1772,50 @@ function carregarTipos(){
 function aplicarTiposDoCache(){
   var c = recuperar("tipos", null);
   if(c && c.length){ TIPOS_DOCS = c; aplicarTipos(c); }
+}
+
+/* ---------------------------------------------------------------------
+   QUEM TROUXE O NEGOCIO
+
+   Todo negocio pode ter uma PESSOA por tras, e isso nao e exclusivo de
+   indicacao. No evento e quem voce conheceu no estande; no cliente atual
+   e quem te apresentou la dentro; na prospeccao geralmente nao tem
+   ninguem, e tudo bem.
+
+   POR QUE OS CAMPOS AINDA SE CHAMAM indicadorId E indicadorNome
+   Porque ja existe dado gravado com esse nome no banco. Renomear campo
+   obriga a migrar todo documento, e migracao pela metade e o jeito mais
+   rapido de um CRM comecar a mentir. O nome interno fica; o que mudou e
+   o significado e o rotulo na tela, que agora e "quem trouxe".
+
+   POR QUE ISSO IMPORTA
+   Era a unica coisa legitima que a indicacao tinha de proprio. Ao virar
+   generico, some o privilegio e fica o valor: da pra saber quem traz
+   negocio pra casa, venha de onde vier. */
+function quemTrouxe(n){
+  if(!n) return null;
+  if(!n.indicadorId && !n.indicadorNome) return null;
+  return { id:n.indicadorId || "", nome:n.indicadorNome || "" };
+}
+/* Rotulo do tipo de tarefa, aguentando os nomes velhos. Documento
+   gravado antes da reforma tem tipo "avisar_indicador" e "pedir_indicacao",
+   e uma tarefa sem rotulo na tela e uma linha que ninguem entende. */
+function rotTarefa(k){
+  if(k === "avisar_indicador") k = "retorno";
+  if(k === "pedir_indicacao")  k = "tarefa";
+  for(var i=0;i<TIPOS_TAREFA.length;i++) if(TIPOS_TAREFA[i].k === k) return TIPOS_TAREFA[i].rot;
+  return "Tarefa";
+}
+function icTarefa(k){
+  if(k === "avisar_indicador") k = "retorno";
+  if(k === "pedir_indicacao")  k = "tarefa";
+  for(var i=0;i<TIPOS_TAREFA.length;i++) if(TIPOS_TAREFA[i].k === k) return TIPOS_TAREFA[i].ic || "☑";
+  return "☑";
+}
+function tiposTarefaDeMao(){
+  var r = [];
+  for(var i=0;i<TIPOS_TAREFA.length;i++) if(TIPOS_TAREFA[i].mao) r.push(TIPOS_TAREFA[i]);
+  return r;
 }
 
 /* ---------------------------------------------------------------------
@@ -2319,6 +2405,7 @@ var ABAS = [
   { k:"funil",    rot:"Funil",    ic:"▦" },
   { k:"negocios", rot:"Negócios", ic:"💼" },
   { k:"pessoas",  rot:"Pessoas",  ic:"👥" },
+  { k:"tarefas",  rot:"Tarefas",  ic:"☑" },
   { k:"painel",   rot:"Painel",   ic:"📊" },
   /* Funis, Modelos e Acessos saem do menu e viram cards de
      Configuracoes. Oito abas na lateral e uma lista, nao um menu: a
@@ -3032,6 +3119,56 @@ var AJUDA = {
   },
 
   /* ---------- indicação ---------- */
+  tarefas: {
+    t: "Tarefas",
+    x: "O que precisa ser feito e não é o próximo passo de um negócio aberto.\n\n" +
+       "A divisão é essa: negócio aberto se cobra sozinho pelo próximo passo, que aparece na aba Hoje. " +
+       "Tarefa é pro que não tem negócio embaixo (ligar pro contador, cobrar um material) e pro que " +
+       "sobrou de um negócio já fechado, tipo lembrar da renovação daqui a dez meses.\n\n" +
+       "Se as duas coisas cobrassem negócio aberto, você teria dois lugares pedindo a mesma coisa " +
+       "sem se falarem, e em duas semanas estaria ignorando os dois."
+  },
+  dono_tarefa: {
+    t: "De quem é a tarefa",
+    x: "Quem tem que fazer. Já vem com o seu nome.\n\n" +
+       "É o que faz a fila do Hoje ser de verdade a SUA fila: tarefa de outra pessoa não aparece " +
+       "no seu dia, a não ser que você peça pra ver a do time."
+  },
+  quem_trouxe: {
+    t: "Quem trouxe este negócio",
+    x: "A pessoa que abriu essa porta, seja qual for a origem.\n\n" +
+       "Na indicação é quem indicou. No evento é quem você conheceu lá. No cliente atual é quem " +
+       "te apresentou internamente. Na prospecção geralmente não tem ninguém, e tudo bem.\n\n" +
+       "Obrigatório só na indicação, porque indicação sem o nome de quem indicou não dá nem pra " +
+       "agradecer. Nas outras é opcional."
+  },
+  quem_traz: {
+    t: "Quem traz negócio",
+    x: "O ranking das pessoas que trouxeram negócio pra casa, ordenado pelo que já virou dinheiro.\n\n" +
+       "Vale pra qualquer origem, não só indicação: quem te apresentou num evento conta igual.\n\n" +
+       "A taxa vem sempre com o número de casos ao lado. Uma pessoa que trouxe um negócio e ele " +
+       "fechou não tem 100% de conversão, tem um negócio."
+  },
+  pessoas: {
+    t: "Pessoas",
+    x: "A agenda da casa. Todo mundo numa ficha só: quem decide na empresa cliente, quem te " +
+       "apresentou, quem você conheceu no evento.\n\n" +
+       "A segunda aba mostra quem já trouxe negócio pra dentro e o que aquilo virou."
+  },
+  relacao_esfriou: {
+    t: "A relação que esfriou",
+    x: "Alguém que já te trouxe dois negócios ganhos ou mais e passou de 120 dias sem trazer nada.\n\n" +
+       "Não é cobrança, é lembrete. Quem já abriu porta uma vez costuma responder rápido, e é o " +
+       "contato que mais escapa da fila do dia."
+  },
+  por_origem: {
+    t: "Por origem",
+    x: "De onde vem o negócio que a casa ganha, e o que cada caminho entrega depois que entra.\n\n" +
+       "Todas as origens aparecem com as mesmas colunas. Nenhuma tem tela própria nem tratamento " +
+       "diferente: a que traz mais é a que traz mais, e isso aparece no número, não no desenho.\n\n" +
+       "Janela de 12 meses porque origem é pergunta de padrão, não de mês. Com um mês só, quase " +
+       "toda linha ficaria com dois ou três casos e a tabela viraria ruído com cara de dado."
+  },
   indicacao: {
     t: "Indicação",
     x: "Quando alguém apresenta você a um cliente novo.\n\n" +
@@ -3493,7 +3630,16 @@ function filaDeHoje(){
   empurrar(b2, 2, 4);
 
   // 3. Tarefa vencida ou de hoje, teto 3, por data (a mais velha primeiro)
+  /* TAREFA TAMBEM TEM DONO.
+
+     Este filtro faltava e era um furo no contrato da tela: o botao diz
+     "Ver so a minha fila", e o balde de tarefa entregava as tarefas de
+     todo mundo assim mesmo. Tarefa sem dono (as criadas antes da reforma)
+     aparece pra todos, mesma regra do negocio sem dono. */
   var tarefas = lista("tarefas").filter(function(t){
+    if(soMeus && t.donoId && SESSAO && SESSAO.acessoId && t.donoId !== SESSAO.acessoId) return false;
+    return true;
+  }).filter(function(t){
     return t.feita !== true && t.data && t.data <= hoje;
   }).sort(hjPorData("data"));
   var tarefasTotal = tarefas.length;
@@ -3614,10 +3760,28 @@ function hjNumerosDoMes(){
     return (m && typeof m === "object") ? m : null;
   }catch(e){ return null; }
 }
+/* Quantos negócios entraram no mês por origem, do maior pro menor.
+   Sem origem nenhuma na base, devolve lista vazia e a seção não sai. */
+function hjEntradasDoMes(){
+  var ym = mesAtual(), conta = {}, i;
+  var ns = lista("negocios");
+  for(i=0;i<ns.length;i++){
+    var n = ns[i];
+    if(n.arquivado) continue;
+    if(mesDe(n.criadoEm) !== ym) continue;
+    var k = n.origem || "__sem";
+    conta[k] = (conta[k] || 0) + 1;
+  }
+  var r = [], k2;
+  for(k2 in conta) if(Object.prototype.hasOwnProperty.call(conta, k2))
+    r.push({ k:k2, rot:(k2 === "__sem" ? "Sem origem anotada" : rotOrigem(k2)), n:conta[k2] });
+  r.sort(function(a, b){ return b.n - a.n; });
+  return r;
+}
 function hjRank(){
   try{
-    if(typeof rankIndicadores !== "function") return [];
-    var r = rankIndicadores();
+    if(typeof rankQuemTraz !== "function") return [];
+    var r = rankQuemTraz();
     return (r && r.length) ? r : [];
   }catch(e){ return []; }
 }
@@ -3759,20 +3923,26 @@ function hjVitoria(f){
       '<div class="small muted">' + fraseEsq + '</div></div>';
   }
 
+  /* A RELAÇÃO QUE ESFRIOU.
+
+     Antes este slot era "Indicador esfriando" e ocupava metade da tela de
+     fila limpa mesmo quando NÃO havia ninguém esfriando: o else existia só
+     pra explicar a regra da indicação. Numa tela que é o prêmio por ter
+     zerado o dia, meia tela era gasta com a doutrina de um canal.
+
+     Agora ele fala de qualquer pessoa que já trouxe negócio, venha de que
+     origem vier, e some quando não há ninguém. Slot vazio é melhor que
+     slot preenchido com explicação. */
   if(frio){
     h += '<div style="border-left:3px solid var(--lime);padding-left:12px">' +
-      '<div class="h3" style="color:var(--lime)">Indicador esfriando</div>' +
+      '<div class="h3" style="color:var(--lime)">A relação que esfriou</div>' +
       '<div class="h2 truncate" style="margin-top:3px">' + esc(frio.nome || "") + '</div>' +
-      '<div class="small muted2">' + (frio.ganhos || 0) + ' negócios ganhos por indicação dele, ' +
-        diasVencido(frio.ultimaEm) + ' dias sem indicar</div>' +
+      '<div class="small muted2">' + (frio.ganhos || 0) +
+        (frio.ganhos === 1 ? ' negócio ganho' : ' negócios ganhos') + ' que ela trouxe, ' +
+        diasVencido(frio.ultimaEm) + ' dias sem trazer nada</div>' +
       '<div style="display:flex;gap:8px;margin-top:9px">' +
-        '<button class="btn acao-fila" data-a="hjPedirIndicacao" data-id="' + esc(frio.id || "") + '">💬 Pedir indicação</button>' +
+        '<button class="btn acao-fila" data-a="hjPedirIndicacao" data-id="' + esc(frio.id || "") + '">💬 Chamar</button>' +
       '</div></div>';
-  } else {
-    h += '<div style="border-left:3px solid var(--border2);padding-left:12px">' +
-      '<div class="h3">Indicador esfriando</div>' +
-      '<div class="small muted">Nenhum indicador com 2 ganhos ou mais passou de 120 dias sem indicar. ' +
-      'Quando algum passar, ele aparece aqui com o botão de mensagem pronto.</div></div>';
   }
 
   h += '</div>';
@@ -3789,30 +3959,13 @@ function hjVitoria(f){
   return h;
 }
 
-function hjBlocoIndicadores(){
-  var rank = hjRank();
-  if(!rank.length) return "";
-  var h = '<div class="card">' +
-    '<div class="card-head">' +
-      '<div class="sec-title">Quem te trouxe negócio' + ajuda("indicacao") + '</div>' +
-      '<button class="btn btn-sm btn-ghost" data-a="ir" data-r="pessoas">Ver ranking</button>' +
-    '</div>';
-  for(var i = 0; i < rank.length && i < 3; i++){
-    var r = rank[i];
-    h += '<div style="display:flex;gap:10px;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--border)">' +
-      '<div class="num" style="font-size:15px;color:var(--text3);flex:0 0 20px">' + (i + 1) + '</div>' +
-      '<div style="flex:1;min-width:0">' +
-        '<div class="cel-nome truncate">' + esc(r.nome || "") + '</div>' +
-        '<div class="cel-sub">' + (r.n || 0) + (r.n === 1 ? " indicação" : " indicações") +
-          ', ' + (r.ganhos || 0) + (r.ganhos === 1 ? " virou cliente" : " viraram cliente") + '</div>' +
-      '</div>' +
-      '<div class="num nowrap" style="font-size:16px;color:var(--lime)">' + brlCurto(r.gerado || 0) + '</div>' +
-    '</div>';
-  }
-  h += '<div class="tiny muted" style="margin-top:9px">Valor gerado em negócios ganhos. ' +
-       'MRR de agência e cota de patrocínio aparecem separados na aba Pessoas.</div></div>';
-  return h;
-}
+/* O CARD "QUEM TE TROUXE NEGÓCIO" SAIU DO HOJE.
+
+   Ele era um relatório fixo no rodapé da fila, de uma origem só, e o Hoje
+   não é lugar de relatório: é a lista do que fazer agora. A pergunta de
+   onde vem negócio passou a ser respondida no Painel, no bloco Por origem,
+   com uma linha pra cada uma das cinco. */
+
 
 /* ---------------------------------------------------------------------
    A TELA
@@ -3921,8 +4074,6 @@ TELAS.hoje = function(){
     }
     h += '</div>';
   }
-
-  h += hjBlocoIndicadores();
 
   // A barra da volta do WhatsApp vive fora do #conteudo, entao é pintada
   // depois que a tela existe.
@@ -4164,13 +4315,23 @@ function hjResumoTexto(){
     L.push("Nada travado. Todo negócio aberto foi tocado nos últimos 7 dias.");
   }
 
-  var rank = hjRank();
-  if(rank.length){
-    var t = rank[0];
+  /* DE ONDE VEIO, e não "Indicação".
+
+     Antes o resumo do dia terminava com uma seção fixa de indicação,
+     nomeando o maior indicador. Era a única origem que aparecia no texto
+     que o time cola no WhatsApp todo dia, e o efeito disso é o time
+     inteiro aprender, por repetição, que indicação é o que importa.
+
+     Agora a seção conta o que entrou no mês por CADA origem, na ordem do
+     volume. Quando só existe uma origem na base, sai uma linha só, e está
+     certo: é o que aconteceu. */
+  var entradas = hjEntradasDoMes();
+  if(entradas.length){
     L.push("");
-    L.push("*Indicação*");
-    L.push("Quem mais trouxe: " + (t.nome || "") + ", " + (t.n || 0) +
-           ((t.n === 1) ? " indicação" : " indicações") + ", " + brl(t.gerado || 0) + " gerados");
+    L.push("*De onde veio no mês*");
+    for(var z=0;z<entradas.length;z++)
+      L.push(entradas[z].rot + ": " + entradas[z].n +
+             (entradas[z].n === 1 ? " negócio" : " negócios"));
   }
 
   return L.join("\n");
@@ -4340,12 +4501,24 @@ function fnLinhaProx(n){
   return '<span class="truncate">' + esc((t ? t.ic + " " + t.rot : "Próximo passo")) +
          ', ' + esc(dataCurta(n.proxData)) + (n.proxHora ? " " + esc(n.proxHora) : "") + '</span>';
 }
-// "via Carla": so o primeiro nome porque o cartao tem 268px e o vendedor
-// reconhece quem indicou pelo primeiro nome.
-function fnChipIndicacao(n){
-  if(n.origem !== "indicacao" || !n.indicadorNome) return "";
-  var p = String(n.indicadorNome).trim().split(/\s+/)[0] || "";
-  return '<span class="tag tag-purple">via ' + esc(p) + '</span>';
+/* CHIP DE ORIGEM no cartao do funil.
+
+   Antes so a indicacao virava chip, entao olhando o quadro era impossivel
+   ver o que veio de prospeccao ativa, de evento ou do site: quatro das
+   cinco origens eram invisiveis no lugar onde o time passa o dia.
+
+   Agora toda origem vira chip, em cor neutra. O nome de quem trouxe entra
+   junto quando existe, e ai o chip fica "Indicação, via Carla". So o
+   primeiro nome, porque o cartao tem 268px. */
+function fnChipOrigem(n){
+  if(!n.origem) return "";
+  var rot = rotOrigem(n.origem);
+  var q = quemTrouxe(n);
+  if(q && q.nome){
+    var p = String(q.nome).trim().split(/\s+/)[0] || "";
+    if(p) rot += ", via " + p;
+  }
+  return '<span class="tag">' + esc(rot) + '</span>';
 }
 
 /* ---------------------------------------------------------------------
@@ -4420,7 +4593,7 @@ function cardNegocio(n, ctx){
                 ' em permuta, que nunca soma com dinheiro</div>' : ''}
     ${congelado ? '<div class="tiny" style="color:var(--blue);margin-top:4px">congelado até ' +
                   esc(dataBR(n.congeladoAte)) + '</div>' : ''}
-    ${fnChipIndicacao(n) ? '<div style="margin-top:7px">' + fnChipIndicacao(n) + '</div>' : ''}
+    ${fnChipOrigem(n) ? '<div style="margin-top:7px">' + fnChipOrigem(n) + '</div>' : ''}
     ${ctx === "lista" && n.proxTexto ? '<div class="tiny muted truncate" style="margin-top:6px">' +
         esc(n.proxTexto) + '</div>' : ''}
     <div class="kf">${fnLinhaProx(n)}</div>
@@ -5195,27 +5368,18 @@ function fnFecharPerdido(id, edK, obs, txtIndicador){
     // indicacao e a que mais se esquece de mandar.
     if(n.origem !== "indicacao") return;
     var c = n.indicadorId ? achar("contatos", n.indicadorId) : null;
-    var tid = idNovo("t");
-    return gravar("crm_tarefas", tid, {
-      id: tid,
-      tipo: "avisar_indicador",
-      texto: String(txtIndicador || ("Avisar " + (n.indicadorNome || "quem indicou") + " que o negócio da " +
-             (n.empresa || "empresa") + " não saiu nessa edição")).slice(0,160),
-      data: somaDias(hojeISO(), 1),
-      contatoId: n.indicadorId || "",
-      contatoNome: n.indicadorNome || "",
-      contatoTel: (c && c.tel) || "",
-      negocioId: n.id,
-      negocioTitulo: n.titulo || "",
-      feita: false,
-      criadoEm: hojeISO(),
-      captouId: n.captouId || "", captouNome: n.captouNome || "",
-    fechaId: n.fechaId || "", fechaNome: n.fechaNome || "",
-    passadoEm: (n.fechaId || n.fechaNome) ? hojeISO() : "",
-    passadoNoEstagio: (n.fechaId || n.fechaNome) ? "pt_mapeado" : "",
-    criadoPor: (SESSAO && SESSAO.nome) || "",
-      arquivado: false
-    }).catch(function(){ /* o negocio ja fechou; falha na tarefa nao vira "não deu pra fechar" */ });
+    /* Usa a MESMA fabrica das outras quatro tarefas automaticas. Aqui o
+       documento era escrito a mao, e foi por isso que ele passou do teto
+       de chaves do banco e parou de gravar em silencio. Uma fabrica so
+       significa um lugar so pra errar. */
+    ngCriarTarefa({
+      tipo:"retorno", data:somaDias(hojeISO(), 1),
+      texto: String(txtIndicador || ("Dar o retorno pra " + (n.indicadorNome || "quem trouxe") +
+             " sobre a " + (n.empresa || "empresa") + ", que não saiu nessa edição")),
+      contatoId:n.indicadorId || "", contatoNome:n.indicadorNome || "",
+      contatoTel:(c && c.tel) || "",
+      negocioId:n.id, negocioTitulo:n.titulo || ""
+    });
   });
 }
 
@@ -5275,7 +5439,10 @@ ACOES.funilMigrar = function(el){
     contatoTel: n.contatoTel || "",
     estagio: "pt_mapeado",
     status: "aberto",
-    origem: n.origem || "prospeccao",
+    /* Origem vazia continua VAZIA. Antes caia em "prospeccao", e isso
+    envenenava a contagem por origem: negocio sem origem anotada
+    aparecia como captacao ativa que ninguem fez. */
+    origem: n.origem || "",
     indicadorId: n.indicadorId || "",
     indicadorNome: n.indicadorNome || "",
     valorRef: valorRefDe({ tipo:"patrocinio", pt:pt }),
@@ -5750,14 +5917,30 @@ function ngNota(negocioId, texto){
     .catch(function(){ alinhar(); });
 }
 
-/* Tarefa: o que não é negócio e, sem casa, nunca aparece. */
+/* A FABRICA DE TAREFA, unica do sistema.
+
+   Tres campos que nao existiam antes da reforma de 11/09/2026:
+
+   dono: tarefa sem dono aparecia na fila de todo mundo. Com SDR e closer
+   no mesmo banco, o SDR abria o Hoje dele e via tarefa do closer dentro
+   da fila que a tela promete que e dele.
+
+   feitaEm e feitaPor: concluir nao deixava rastro nenhum, entao uma lista
+   de concluidas era uma lista sem informacao.
+
+   auto: separa o que o sistema deu do que a pessoa se prometeu. E a unica
+   leitura que interessa quando a fila cresce. */
 function ngCriarTarefa(t){
   var id = idNovo("t");
   var doc = {
-    tipo: t.tipo, texto: String(t.texto||"").slice(0,160), data: t.data,
+    tipo: t.tipo || "tarefa", texto: String(t.texto||"").slice(0,160), data: t.data,
     contatoId: t.contatoId || "", contatoNome: t.contatoNome || "", contatoTel: t.contatoTel || "",
     negocioId: t.negocioId || "", negocioTitulo: String(t.negocioTitulo||"").slice(0,120),
-    feita: false, criadoEm: hojeISO(), criadoPor:(SESSAO && SESSAO.nome) || "", arquivado: false
+    donoId: t.donoId || (SESSAO && SESSAO.acessoId) || "",
+    donoNome: t.donoNome || (SESSAO && SESSAO.nome) || "",
+    auto: t.auto !== false,
+    feita: false, feitaEm: "", feitaPor: "",
+    criadoEm: hojeISO(), criadoPor:(SESSAO && SESSAO.nome) || "", arquivado: false
   };
   return gravar("crm_tarefas", id, doc).catch(function(){});
 }
@@ -6348,38 +6531,79 @@ function ngBlocoContato(n){
   return h + '</div>';
 }
 
-/* Indicação. O telefone de quem indicou fica do lado de propósito: é a
-   quem se pede um empurrão quando o negócio trava, e procurar esse número
-   em outra tela é o motivo de nunca se pedir. */
-function ngBlocoIndicacao(n){
-  if(n.origem !== "indicacao") {
-    return '<div class="card"><div class="sec-title">Origem' + ajuda("origem") + '</div>' +
-      '<div class="h2" style="text-transform:none;margin-top:10px">' + esc(rotOrigem(n.origem)) + '</div></div>';
+/* DE ONDE VEIO.
+
+   Antes este card tinha dois caminhos muito desiguais: pra indicacao,
+   nome, ranking, telefone e dois botoes; pras outras quatro origens, uma
+   linha morta com o nome da origem e nada mais. Quatro quintos dos
+   negocios tinham no lugar mais nobre da coluna um card que nao fazia
+   nada.
+
+   Agora o card e o mesmo pra todas: diz a origem, e quando existe alguem
+   que trouxe o negocio (o que pode acontecer em QUALQUER origem) mostra a
+   pessoa, o que ela ja trouxe e o telefone dela do lado. Telefone do lado
+   de proposito: e a quem se pede um empurrao quando trava, e procurar
+   esse numero em outra tela e o motivo de nunca se pedir. */
+function ngBlocoOrigem(n){
+  var q = quemTrouxe(n);
+  if(!q){
+    var podeAnotar = podeEditarNegocios();
+    return '<div class="card"><div class="sec-title">De onde veio' + ajuda("origem") + '</div>' +
+      '<div class="h2" style="text-transform:none;margin-top:10px">' +
+        esc(n.origem ? rotOrigem(n.origem) : "sem origem anotada") + '</div>' +
+      '<div class="tiny muted" style="margin-top:7px">' +
+        (n.origem === "indicacao"
+          ? 'Veio de indicação e ninguém está anotado como quem indicou, então ele fica de fora do ranking de quem traz negócio.'
+          : 'Se alguém abriu essa porta, anote no cadastro. Vale pra qualquer origem, não só indicação.') +
+      '</div></div>';
   }
   var ind = n.indicadorId ? contatoPorId(n.indicadorId) : null;
   var nome = (ind && ind.nome) || n.indicadorNome || "";
   var linha = "", tel = (ind && ind.tel) || "";
 
   if(n.indicadorId){
-    var r = rankIndicadores(), eu = null;
+    var r = rankQuemTraz(), eu = null;
     for(var i=0;i<r.length;i++) if(r[i].id === n.indicadorId) eu = r[i];
     if(eu){
-      linha = eu.n + (eu.n===1?" indicação":" indicações") + ", " + eu.ganhos +
+      linha = eu.n + (eu.n===1?" negócio trazido":" negócios trazidos") + ", " + eu.ganhos +
         (eu.ganhos===1?" ganho":" ganhos") + ", " + brlCurto(eu.gerado) + " gerados";
       if(!tel) tel = eu.tel || "";
     }
   }
 
-  return '<div class="card"><div class="sec-title">Indicação' + ajuda("indicacao") + '</div>' +
-    '<div class="h2" style="text-transform:none;margin-top:10px">via ' + esc(nome || "alguém que não foi informado") + '</div>' +
+  return '<div class="card"><div class="sec-title">De onde veio' + ajuda("origem") + '</div>' +
+    '<div class="h2" style="text-transform:none;margin-top:10px">' + esc(rotOrigem(n.origem)) + '</div>' +
+    '<div class="small muted2" style="margin-top:3px">via ' + esc(nome || "alguém que não foi informado") + '</div>' +
     (linha ? '<div class="small muted2">' + esc(linha) + '</div>' : '') +
     (tel ? '<div class="small muted" style="margin-top:5px">' + esc(foneBR(tel)) + '</div>' : '') +
     '<div class="pills" style="margin-top:11px">' +
       (tel ? '<button class="btn btn-sm" data-a="ngZapIndicador" data-id="' + esc(n.id) + '">💬 Pedir um empurrão</button>' : '') +
       (n.indicadorId ? '<button class="btn btn-sm btn-ghost" data-a="ir" data-r="pessoa/' + esc(n.indicadorId) + '">Ver ficha</button>' : '') +
     '</div>' +
-    (!n.indicadorId ? '<div class="tiny muted" style="margin-top:9px">Sem indicador informado, esse negócio fica de fora do ranking de indicação.</div>' : '') +
+    (!n.indicadorId ? '<div class="tiny muted" style="margin-top:9px">O nome está escrito mas a pessoa não tem ficha, então esse negócio fica de fora do ranking de quem traz.</div>' : '') +
   '</div>';
+}
+
+/* O QUE O FECHAMENTO VAI CRIAR.
+
+   Antes so a tarefa de indicacao era anunciada, e em var(--lime), como se
+   fosse a unica que existisse. A de renovacao, que nasce no mesmo clique e
+   e a mais valiosa da casa, nascia invisivel: ninguem sabia que ela
+   existia ate ela aparecer na fila 60 dias antes do contrato vencer.
+
+   Uma linha so, no mesmo tom, listando tudo. Surpresa boa continua sendo
+   surpresa, e surpresa no CRM e o comeco da desconfianca. */
+function ngTarefasQueVaoNascer(n, comoFechou){
+  var L = [], q = quemTrouxe(n);
+  if(n.origem === "indicacao" && q)
+    L.push("dar o retorno pra " + (q.nome || "quem indicou") + ", pra amanhã");
+  if(comoFechou === "ganho" && ehRecorrente(n))
+    L.push("lembrar da renovação, 60 dias antes de o contrato acabar");
+  if(comoFechou === "perdido")
+    L.push("retomar, se você marcar uma data acima");
+  if(!L.length) return "";
+  return '<div class="small muted2">Ao fechar, o sistema cria ' +
+    (L.length === 1 ? "uma tarefa: " : L.length + " tarefas: ") + esc(L.join("; ")) + '.</div>';
 }
 
 /* Saúde: os quatro números que dizem se esse negócio está vivo. Cada um
@@ -6427,6 +6651,42 @@ function ngBlocoSaude(n){
 
 /* Outros negócios da mesma empresa. Renovação, segunda cota e upsell
    moram aqui, e sem esse bloco o vendedor abre a empresa errada. */
+/* TAREFA NO NEGOCIO: SO DEPOIS DE FECHADO.
+
+   Com o negocio aberto, o compromisso e o proximo passo, que ja e um por
+   negocio, com data, e cobrado pela fila do Hoje. Oferecer tarefa ali do
+   lado criaria dois lugares cobrando a mesma coisa sem conversarem entre
+   si, e a pessoa aprende a ignorar os dois.
+
+   Depois de fechado o proximo passo e zerado, e ai a tarefa passa a ser o
+   unico jeito de ter compromisso com aquele negocio. */
+function ngBlocoTarefas(n){
+  if(n.status === "aberto") return "";
+  var bloq = motivoBloqueio("crm_tarefas");
+  var minhas = lista("tarefas").filter(function(t){
+    return t.negocioId === n.id && !t.feita && !t.arquivado;
+  });
+  var h = '<div class="card"><div class="card-head" style="margin-bottom:8px"><div>' +
+    '<div class="sec-title">Tarefas' + ajuda("tarefas") + '</div>' +
+    '<div class="sec-sub" style="padding-left:0">Esse negócio está fechado, então o que sobrou dele vive aqui.</div>' +
+    '</div><div>' + (bloq ? '' :
+      '<button class="btn btn-sm" data-a="tfDoNegocio" data-id="' + esc(n.id) + '">+ Tarefa</button>') +
+    '</div></div>';
+  if(!minhas.length)
+    return h + '<div class="tiny muted">Nenhuma tarefa em aberto pra esse negócio.</div></div>';
+  for(var i=0;i<minhas.length;i++){
+    var tf = minhas[i];
+    h += '<div style="display:flex;gap:9px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--border)">' +
+      '<div>' + icTarefa(tf.tipo) + '</div>' +
+      '<div style="flex:1;min-width:0"><div class="truncate">' + esc(tf.texto || rotTarefa(tf.tipo)) + '</div>' +
+        '<div class="tiny muted">' + esc(tf.data ? dataBR(tf.data) : "sem data") +
+        (tf.donoNome ? ' · ' + esc(tf.donoNome) : '') + '</div></div>' +
+      (bloq ? '' : '<button class="btn btn-sm" data-a="tfFeita" data-id="' + esc(tf.id) + '">✓</button>') +
+    '</div>';
+  }
+  return h + '</div>';
+}
+
 function ngBlocoOutros(n){
   var arr = lista("negocios").filter(function(x){
     return x.id !== n.id && x.empresaChave && x.empresaChave === n.empresaChave;
@@ -6561,8 +6821,9 @@ TELAS.negocio = function(){
     '<div class="ng-side">' +
       ngBlocoContato(n) +
       ngBlocoQuemToca(n) +
-      ngBlocoIndicacao(n) +
+      ngBlocoOrigem(n) +
       ngBlocoSaude(n) +
+      ngBlocoTarefas(n) +
       ngBlocoOutros(n) +
       ngBlocoProposta(n) +
       ngBlocoValores(n) +
@@ -6987,10 +7248,7 @@ ACOES.ngGanho = function(el){
     '<div class="fld" style="max-width:220px"><label>Fechou em</label>' +
       '<input class="inp" type="date" id="ngGdata" value="' + hojeISO() + '" max="' + hojeISO() + '"></div>' +
     '<div class="tiny muted">Ganho vale tanto pra contrato assinado quanto pra pagamento confirmado. Agência brasileira começa a rodar antes do contrato voltar em metade dos casos.</div>' +
-    (n.origem === "indicacao"
-      ? '<div class="small" style="color:var(--lime)">Vamos criar a tarefa de avisar ' +
-        esc(n.indicadorNome || "quem indicou") + ' pra amanhã. É a mensagem que mais gera a próxima indicação é a que mais se esquece.</div>'
-      : '') +
+    ngTarefasQueVaoNascer(n, "ganho") +
     '<div class="fld"><div class="err" id="ngErr"></div></div>' +
   '</form>';
 
@@ -7053,7 +7311,7 @@ ACOES.ngSalvarGanho = function(f){
     if(indicou){
       var ind = indId ? contatoPorId(indId) : null;
       ngCriarTarefa({
-        tipo:"avisar_indicador", data:somaDias(hojeISO(), 1),
+        tipo:"retorno", data:somaDias(hojeISO(), 1),
         texto:"Avisar " + (indNome || "quem indicou") + " que fechamos com a " + empresa,
         contatoId:indId, contatoNome:indNome || "", contatoTel:(ind && ind.tel) || "",
         negocioId:id, negocioTitulo:titulo
@@ -7071,7 +7329,7 @@ ACOES.ngSalvarGanho = function(f){
         negocioId:id, negocioTitulo:titulo
       });
     }
-    comDesfazer("Ganho! " + (indicou ? "Tarefa de avisar quem indicou criada." : ""), "crm_negocios", id, antes);
+    comDesfazer("Ganho!", "crm_negocios", id, antes);
     redesenhar();
   });
 };
@@ -7103,10 +7361,7 @@ ACOES.ngPerdido = function(el){
         '<textarea class="inp" id="ngPobs" maxlength="400" placeholder="adiaram pro orçamento de 2028"></textarea></div>' +
       '<div class="fld" style="max-width:220px"><label>Fechou em</label>' +
         '<input class="inp" type="date" id="ngPdata" value="' + hojeISO() + '" max="' + hojeISO() + '"></div>' +
-      (n.origem === "indicacao"
-        ? '<div class="small" style="color:var(--lime)">Vamos criar a tarefa de dar o retorno pra ' +
-          esc(n.indicadorNome || "quem indicou") + '. Avisar quando não deu certo é o que faz a próxima indicação existir.</div>'
-        : '') +
+      ngTarefasQueVaoNascer(n, "perdido") +
       '<div class="fld"><div class="err" id="ngErr"></div></div>' +
     '</form>',
     '<button class="btn btn-ghost" data-a="fecharFolha">Cancelar</button>' +
@@ -7178,7 +7433,7 @@ ACOES.ngSalvarPerdido = function(f){
     if(indicou){
       var ind = indId ? contatoPorId(indId) : null;
       ngCriarTarefa({
-        tipo:"avisar_indicador", data:somaDias(hojeISO(), 1),
+        tipo:"retorno", data:somaDias(hojeISO(), 1),
         texto:"Dar o retorno pra " + (indNome || "quem indicou") + " sobre a " + empresa,
         contatoId:indId, contatoNome:indNome || "", contatoTel:(ind && ind.tel) || "",
         negocioId:id, negocioTitulo:titulo
@@ -7404,7 +7659,11 @@ ACOES.ngSalvarRenovar = function(f){
     tipo:n.tipo, titulo:titulo, empresa:n.empresa, empresaChave:n.empresaChave || chave(n.empresa),
     contatoId:n.contatoId || "", contatoNome:n.contatoNome || "", contatoTel:n.contatoTel || "",
     estagio:estRenov, status:"aberto", origem:"cliente_atual",
-    indicadorId:"", indicadorNome:"",
+    /* Quem trouxe o cliente CONTINUA creditado na renovacao. Antes estes
+       dois campos eram zerados, e a pessoa que abriu a porta perdia o
+       credito no ranking a cada renovacao. A origem vira cliente_atual,
+       que e verdade, e as duas contagens passam a ser independentes. */
+    indicadorId:n.indicadorId || "", indicadorNome:n.indicadorNome || "",
     ag:{ mrr:mrr, mrrInicial:mrr, meses:meses, verbaMidia:a.verbaMidia || 0, pctVerba:a.pctVerba || 0,
          servicos:a.servicos || [], inicioContrato:ini, fimContrato:(meses ? somaDias(ini, meses*30 - 1) : ""),
          renovacaoDeId:id, quemDecide:a.quemDecide || "", faixaVerba:a.faixaVerba || "" },
@@ -7601,15 +7860,27 @@ if(!window.NG_DELEGADO){
 
 /* ============ 09-pessoas ============ */
 /* =====================================================================
-   CRM LIME - PESSOAS E INDICAÇÃO
+   CRM LIME - PESSOAS
 
-   Contato e indicador são a MESMA entidade (seção 2.5 do SPEC). Criar uma
-   segunda coleção de "indicadores" faria o Paulo da Shineray existir duas
-   vezes e nunca mais bater.
+   A agenda de contatos da casa, mais a resposta de quem traz negócio
+   pra dentro.
 
-   Indicação é praticamente o único canal de entrada da casa, então esta
-   tela não é um cadastro: é o relatório que responde quem trouxe dinheiro,
-   quem parou de trazer e quanto a indicação vale contra as outras origens.
+   O QUE MUDOU EM 11/09/2026, E POR QUE
+   Esta tela nasceu como relatório de UMA origem. Trinta e nove por cento
+   dela existia só pra indicação: ranking de indicadores, valor médio da
+   indicação, indicador esfriando, e uma comparação binária de indicação
+   contra um balde chamado "outras origens". As outras quatro origens não
+   existiam individualmente em lugar nenhum do sistema.
+
+   Isso estava errado por dois motivos. Primeiro porque indicação é uma
+   origem entre cinco, e a prospecção ativa hoje traz mais. Segundo porque
+   análise de origem é trabalho do Painel, que compara as cinco com as
+   mesmas colunas, e não de uma tela de contatos.
+
+   O QUE FICOU: QUEM TRAZ NEGÓCIO. Toda pessoa pode ter trazido negócio,
+   venha ele de indicação, de evento ou de um cliente que apresentou. O
+   ranking sobreviveu porque essa pergunta é boa; o que morreu foi ela
+   valer só pra uma origem.
 
    ZERO LEITURA. Tudo aqui é aritmética em cima do array que já está na
    memória. Não existe contador de indicação gravado no banco de propósito:
@@ -7621,7 +7892,7 @@ if(!window.NG_DELEGADO){
 
 /* Estado da tela. Fica só em memória: filtro de lista não é dado de
    negócio e não merece viajar pro banco nem pro cache. */
-var PESSOAS_VISAO = "todos";     // "todos" | "indicadores"
+var PESSOAS_VISAO = "todos";     // "todos" | "quem_traz"
 var PESSOAS_FILTRO = "";
 
 /* Atalho de achar(). Devolve também contato arquivado, de propósito: o
@@ -7643,11 +7914,16 @@ function contatoPorId(id){ return achar("contatos", id); }
    Agrupa por indicadorId mesmo quando a origem não é "indicacao": se
    alguém apontou o caminho, apontou. Os negócios com origem indicação e
    SEM indicadorId ficam de fora e são contados a parte por
-   indicacoesSemDono(), porque número sem o buraco declarado vira mentira.
+   trazidosSemDono(), porque número sem o buraco declarado vira mentira.
    --------------------------------------------------------------------- */
 function pesVirouCliente(n){ return n.status === "ganho" || n.status === "encerrado"; }
 
-function rankIndicadores(){
+/* Quem trouxe negócio pra casa, somando por pessoa.
+
+   Repare que a conta NUNCA olha a origem: ela agrupa por quem está
+   anotado como tendo trazido o negócio. Sempre foi assim no código; o
+   que era de indicação era só o nome e a moldura em volta. */
+function rankQuemTraz(){
   var neg = lista("negocios"), mapa = {}, ordem = [], i, n, r, c;
 
   for(i=0;i<neg.length;i++){
@@ -7661,7 +7937,7 @@ function rankIndicadores(){
         id: n.indicadorId,
         // O nome do contato manda. O indicadorNome gravado no negócio é o
         // retrato do dia do cadastro e serve só quando o contato sumiu.
-        nome: (c && c.nome) || n.indicadorNome || "Indicador sem cadastro",
+        nome: (c && c.nome) || n.indicadorNome || "Pessoa sem cadastro",
         tel: (c && c.tel) || "",
         empresa: (c && c.empresa) || "",
         acordo: (c && c.acordo) || "",
@@ -7698,12 +7974,12 @@ function rankIndicadores(){
     r = ordem[i];
     r.conversao = r.n ? (r.ganhos / r.n) * 100 : 0;        // em % (0 a 100)
     r.diasSemIndicar = r.ultimaEm ? diasVencido(r.ultimaEm) : 0;
-    // Valor médio da indicação divide o gerado por TODAS as indicacoes
-    // recebidas, não só pelas ganhas (seção 7.5). Quem indica cinco e
-    // acerta uma não trouxe R$ 96 mil por indicação.
+    // Valor médio divide o gerado por TODOS os negócios que a pessoa
+    // trouxe, não só pelos ganhos. Quem traz cinco e acerta um não
+    // trouxe R$ 96 mil por negócio.
     r.valorMedio = r.n ? Math.round(r.gerado / r.n) : 0;
-    // Esfriando: já provou que a indicação dele fecha (2 ganhos ou mais) e
-    // sumiu há mais de 120 dias. É a ligação de maior retorno da casa.
+    // Parou de trazer: já provou que o que ela traz fecha (2 ganhos ou
+    // mais) e sumiu há mais de 120 dias.
     r.frio = r.ganhos >= 2 && r.diasSemIndicar > 120;
   }
 
@@ -7716,9 +7992,13 @@ function rankIndicadores(){
   return ordem;
 }
 
-/* O buraco do ranking: origem indicação e ninguém anotado como indicador.
-   Declarar isso na tela é o que sustenta o resto dos números. */
-function indicacoesSemDono(){
+/* O buraco do ranking: negócio que veio de indicação e ficou sem ninguém
+   anotado. Declarar isso na tela é o que sustenta o resto dos números.
+
+   Só a indicação entra nesta conta, e isso não é privilégio: nas outras
+   origens o campo é opcional de propósito, então ausência ali é escolha,
+   não buraco. */
+function trazidosSemDono(){
   return lista("negocios").filter(function(n){
     return n.origem === "indicacao" && !n.indicadorId;
   });
@@ -7754,22 +8034,18 @@ function pesLadoFechado(negocios){
     ciclos: ciclos, tickets: tickets
   };
 }
-function pesComparaIndicacao(){
-  var fechados = lista("negocios").filter(function(n){
-    return n.status === "ganho" || n.status === "perdido" || n.status === "encerrado";
-  });
-  var ind = [], out = [], i;
-  for(i=0;i<fechados.length;i++){
-    if(fechados[i].origem === "indicacao" || fechados[i].indicadorId) ind.push(fechados[i]);
-    else out.push(fechados[i]);
-  }
-  return { ind: pesLadoFechado(ind), out: pesLadoFechado(out) };
-}
+/* A COMPARAÇÃO POR ORIGEM SAIU DAQUI.
 
-/* ---------------------------------------------------------------------
-   FORMATAÇÃO LOCAL
-   Tudo com prefixo "pes" pra não colidir com helper de outro módulo.
-   --------------------------------------------------------------------- */
+   Existia um pesComparaIndicacao que partia a base em dois baldes,
+   indicação de um lado e as outras quatro juntas do outro, e escrevia
+   manchete do tipo "negócio indicado ganha 2,8 vezes mais". Três
+   problemas: media uma origem contra uma mistura, escondia quatro
+   origens, e o corte contava como indicação qualquer negócio com pessoa
+   anotada, inflando justamente o lado favorecido.
+
+   Agora quem responde isso é pnlBlocoOrigens, no Painel, com uma linha
+   por origem e as mesmas colunas pra todas. */
+
 function pesNumBR(v){
   return (Number(v)||0).toLocaleString('pt-BR',{ minimumFractionDigits:1, maximumFractionDigits:1 });
 }
@@ -7924,8 +8200,8 @@ TELAS.pessoas = function(){
 
   var h = `<div class="card-head" style="margin-bottom:0">
     <div>
-      <div class="h1">Pessoas${ajuda("indicacao")}</div>
-      <div class="sec-sub" style="padding-left:0">${pesQtd(contatos.length,"contato cadastrado","contatos cadastrados")}, ${pesQtd(indicadores.length,"marcado","marcados")} como indicador</div>
+      <div class="h1">Pessoas${ajuda("pessoas")}</div>
+      <div class="sec-sub" style="padding-left:0">${pesQtd(contatos.length,"contato cadastrado","contatos cadastrados")}, ${pesQtd(indicadores.length,"marcada","marcadas")} como quem traz negócio</div>
     </div>
     ${pesBotao("Novo contato","pessoasNovoContato",{},"btn-primary",bloq)}
   </div>`;
@@ -7933,7 +8209,7 @@ TELAS.pessoas = function(){
   h += `<div>
     <div class="pills" style="margin-bottom:11px">
       <button class="pill ${PESSOAS_VISAO === "todos" ? "on" : ""}" data-a="pessoasVisao" data-v="todos">Todos os contatos (${contatos.length})</button>
-      <button class="pill ${PESSOAS_VISAO === "indicadores" ? "on" : ""}" data-a="pessoasVisao" data-v="indicadores">Só indicadores (${indicadores.length})</button>
+      <button class="pill ${PESSOAS_VISAO === "quem_traz" ? "on" : ""}" data-a="pessoasVisao" data-v="quem_traz">Quem traz negócio (${indicadores.length})</button>
     </div>
     <form data-a="pessoasFiltrar" style="display:flex;gap:8px;align-items:center;max-width:460px">
       <input class="inp" id="pesBusca" type="search" placeholder="Filtrar por nome, empresa ou telefone" value="${esc(PESSOAS_FILTRO)}">
@@ -7942,7 +8218,7 @@ TELAS.pessoas = function(){
     </form>
   </div>`;
 
-  h += (PESSOAS_VISAO === "indicadores") ? pesViewIndicadores() : pesViewTodos(contatos);
+  h += (PESSOAS_VISAO === "quem_traz") ? pesViewQuemTraz() : pesViewTodos(contatos);
   return h;
 };
 
@@ -7952,7 +8228,7 @@ function pesViewTodos(contatos){
   var porContato = {}, neg = lista("negocios"), i;
   for(i=0;i<neg.length;i++) if(neg[i].contatoId) porContato[neg[i].contatoId] = (porContato[neg[i].contatoId]||0) + 1;
 
-  var rank = rankIndicadores(), porInd = {};
+  var rank = rankQuemTraz(), porInd = {};
   for(i=0;i<rank.length;i++) porInd[rank[i].id] = rank[i];
 
   var lst = contatos.filter(function(c){ return pesCasa(c, PESSOAS_FILTRO); });
@@ -7968,7 +8244,7 @@ function pesViewTodos(contatos){
     }
     return `<div class="card"><div class="empty">
       <div class="ei">👥</div><div class="et">Nenhum contato ainda</div>
-      <div class="ex">Contato e indicador são a mesma ficha aqui. Cadastre quem te indica e quem decide na empresa cliente.</div>
+      <div class="ex">Uma ficha só pra todo mundo: quem decide na empresa cliente, quem te apresentou, quem você conheceu no evento.</div>
       ${pesBotao("Cadastrar o primeiro contato","pessoasNovoContato",{},"btn-primary",motivoBloqueio("crm_contatos"))}
     </div></div>`;
   }
@@ -7980,7 +8256,7 @@ function pesViewTodos(contatos){
     var r = porInd[c.id];
     var selo = c.ehIndicador
       ? '<span class="tag tag-lime">Indicador</span>' + (r ? ' <span class="tiny muted">' + pesQtd(r.n,"indicação","indicações") + '</span>' : ' <span class="tiny muted">ainda sem indicação</span>')
-      : (r ? '<span class="tiny muted">' + pesQtd(r.n,"indicação","indicações") + ', sem a marca de indicador</span>' : '<span class="muted">-</span>');
+      : (r ? '<span class="tiny muted">' + pesQtd(r.n,"negócio trazido","negócios trazidos") + ', sem a marca</span>' : '<span class="muted">-</span>');
 
     linhas += `<tr data-a="ir" data-r="pessoa/${esc(c.id)}">
       <td><div class="cel-nome">${esc(c.nome)}</div><div class="cel-sub">${esc(c.cargo || "cargo não informado")}</div></td>
@@ -8008,7 +8284,7 @@ function pesViewTodos(contatos){
     <div class="tw no-mob">
       <table class="tb">
         <thead><tr>
-          <th>Pessoa</th><th>Empresa</th><th>Telefone</th><th class="r">Negócios</th><th>Indicação</th>
+          <th>Pessoa</th><th>Empresa</th><th>Telefone</th><th class="r">Negócios</th><th>Trouxe</th>
         </tr></thead>
         <tbody>${linhas}</tbody>
       </table>
@@ -8018,9 +8294,9 @@ function pesViewTodos(contatos){
 }
 
 /* ----- visão INDICADORES ----- */
-function pesViewIndicadores(){
-  var rank = rankIndicadores();
-  var orfas = indicacoesSemDono();
+function pesViewQuemTraz(){
+  var rank = rankQuemTraz();
+  var orfas = trazidosSemDono();
   var visiveis = rank.filter(function(r){
     return pesCasa({ nome:r.nome, empresa:r.empresa, tel:r.tel }, PESSOAS_FILTRO);
   });
@@ -8033,27 +8309,27 @@ function pesViewIndicadores(){
 
   if(!rank.length){
     // Sem ranking a tela NÃO pode acabar aqui. No primeiro dia a pilha diz
-    // "Só indicadores (3)" e o ranking está vazio: se o bloco de marcados
+    // "Quem traz negócio (3)" e o ranking está vazio: se o bloco de marcados
     // sem indicar também some, o vendedor vê o contador prometer 3 pessoas
     // e a tela não mostrar nenhuma. São justamente as 3 ligações que ele
     // tem pra fazer hoje.
     return `<div class="card"><div class="empty">
-      <div class="ei">🤝</div><div class="et">Nenhuma indicação anotada ainda</div>
-      <div class="ex">Assim que um negócio for cadastrado com origem indicação e com quem indicou preenchido, o ranking aparece aqui sozinho, sem precisar recalcular nada.</div>
+      <div class="ei">🤝</div><div class="et">Ninguém anotado como quem trouxe, ainda</div>
+      <div class="ex">Assim que um negócio for cadastrado com o campo "quem trouxe" preenchido, de qualquer origem, o ranking aparece aqui sozinho.</div>
       ${orfas.length ? '<div class="tiny" style="color:var(--warn)">' + pesQtd(orfas.length,"negócio tem","negócios têm") + ' origem indicação mas ninguém anotado como indicador.</div>' : ''}
     </div></div>` + pesBlocoSemIndicar(rank);
   }
 
   var h = `<div class="kpis">
     <div class="kpi accent">
-      <div class="kpi-l">Indicações recebidas</div>
+      <div class="kpi-l">Negócios trazidos</div>
       <div class="kpi-v lime">${totN}</div>
-      <div class="kpi-s">de ${pesQtd(rank.length,"pessoa","pessoas")}${orfas.length ? ", mais " + orfas.length + " sem indicador anotado" : ""}</div>
+      <div class="kpi-s">de ${pesQtd(rank.length,"pessoa","pessoas")}${orfas.length ? ", mais " + orfas.length + " sem ninguém anotado" : ""}</div>
     </div>
     <div class="kpi">
       <div class="kpi-l">Viraram cliente</div>
       <div class="kpi-v green">${totG}</div>
-      <div class="kpi-s">${totN ? pct((totG/totN)*100,0) + " de " + pesQtd(totN,"indicação","indicações") : "sem base ainda"}</div>
+      <div class="kpi-s">${totN ? pct((totG/totN)*100,0) + " de " + pesQtd(totN,"negócio trazido","negócios trazidos") : "sem base ainda"}</div>
     </div>
     <div class="kpi">
       <div class="kpi-l">Gerado</div>
@@ -8063,7 +8339,7 @@ function pesViewIndicadores(){
     <div class="kpi">
       <div class="kpi-l">Em aberto</div>
       <div class="kpi-v warn">${brlCurto(totAb)}</div>
-      <div class="kpi-s">${pesQtd(rank.reduce(function(s,r){ return s + r.abertos; },0),"negócio indicado","negócios indicados")} ainda em jogo</div>
+      <div class="kpi-s">${pesQtd(rank.reduce(function(s,r){ return s + r.abertos; },0),"negócio trazido","negócios trazidos")} ainda em jogo</div>
     </div>
   </div>`;
 
@@ -8071,15 +8347,14 @@ function pesViewIndicadores(){
   h += pesBlocoBuraco(totN, totG, totGer, orfas);
   h += pesBlocoEsfriando(rank);
   h += pesBlocoSemIndicar(rank);
-  h += pesBlocoComparativo();
   return h;
 }
 
 function pesTabelaRank(rank, totalGeral){
   if(!rank.length){
     return `<div class="card"><div class="empty">
-      <div class="ei">🔍</div><div class="et">Nenhum indicador com esse nome</div>
-      <div class="ex">O ranking tem ${pesQtd(totalGeral,"indicador","indicadores")}, nenhum casa com "${esc(PESSOAS_FILTRO)}".</div>
+      <div class="ei">🔍</div><div class="et">Ninguém com esse nome no ranking</div>
+      <div class="ex">O ranking tem ${pesQtd(totalGeral,"pessoa","pessoas")}, nenhum casa com "${esc(PESSOAS_FILTRO)}".</div>
       <button class="btn" data-a="pessoasLimparFiltro">Limpar o filtro</button>
     </div></div>`;
   }
@@ -8126,13 +8401,13 @@ function pesTabelaRank(rank, totalGeral){
   }
 
   return `<div>
-    <div class="sec-title">Quem indicou, e o que aquilo virou${ajuda("indicacao")}</div>
+    <div class="sec-title">Quem traz negócio, e o que aquilo virou${ajuda("quem_traz")}</div>
     <div class="sec-sub">Ordenado por R$ gerado. Toda taxa vem com o n ao lado, porque 100% com uma indicação não é 100%, é uma indicação.${
       // Com filtro ligado a tabela mostra menos linhas que os totais de
       // cima, que continuam somando o ranking inteiro. Sem esta linha as
       // duas metades da tela discordam sem explicação.
       (PESSOAS_FILTRO && rank.length < totalGeral)
-        ? ' Mostrando ' + rank.length + ' de ' + pesQtd(totalGeral,"indicador","indicadores") + ', filtrado por "' + esc(PESSOAS_FILTRO) + '". Os números grandes acima somam o ranking inteiro.'
+        ? ' Mostrando ' + rank.length + ' de ' + pesQtd(totalGeral,"pessoa","pessoas") + ', filtrado por "' + esc(PESSOAS_FILTRO) + '". Os números grandes acima somam o ranking inteiro.'
         : ''}</div>
     <div class="tw no-mob" style="margin-top:12px">
       <table class="tb">
@@ -8173,8 +8448,8 @@ function pesBlocoBuraco(totN, totG, totGer, orfas){
   }
 
   var buraco = orfas.length
-    ? `<div class="tiny" style="color:var(--warn);margin-top:7px">(${pesQtd(orfas.length,"negócio","negócios")} com origem indicação e indicador não informado ${orfas.length === 1 ? "ficou" : "ficaram"} de fora desta conta)</div>`
-    : `<div class="tiny muted" style="margin-top:7px">Nenhum negócio com origem indicação ficou sem indicador anotado. A conta acima cobre todos.</div>`;
+    ? `<div class="tiny" style="color:var(--warn);margin-top:7px">(${pesQtd(orfas.length,"negócio","negócios")} com origem indicação e sem ninguém anotado ${orfas.length === 1 ? "ficou" : "ficaram"} de fora desta conta)</div>`
+    : `<div class="tiny muted" style="margin-top:7px">Nenhum negócio com origem indicação ficou sem ninguém anotado. A conta acima cobre todos.</div>`;
 
   return `<div class="card">
     <div class="h3" style="margin-bottom:7px">Valor médio da indicação</div>
@@ -8208,7 +8483,7 @@ function pesBlocoEsfriando(rank){
   }).join("");
 
   return `<div class="card card-lime">
-    <div class="sec-title">Indicador esfriando${ajuda("indicador_frio")}</div>
+    <div class="sec-title">A relação que esfriou${ajuda("relacao_esfriou")}</div>
     <div class="sec-sub">Já trouxe 2 clientes ou mais e passou de 120 dias sem indicar ninguém. O botão abre a mensagem de pedir indicação (modelo m5).</div>
     <div style="margin-top:13px">${itens}</div>
   </div>`;
@@ -8238,8 +8513,8 @@ function pesBlocoSemIndicar(rank){
   }).join("");
 
   return `<div class="card">
-    <div class="sec-title">Marcados como indicador, ainda sem indicar</div>
-    <div class="sec-sub">${pesQtd(zerados.length,"pessoa está","pessoas estão")} com a marca de indicador e nenhuma indicação anotada até agora.</div>
+    <div class="sec-title">Marcados e ainda sem trazer nada</div>
+    <div class="sec-sub">${pesQtd(zerados.length,"pessoa está","pessoas estão")} marcada como quem traz negócio, e nenhum negócio anotado no nome dela até agora.</div>
     <div style="margin-top:11px">${itens}</div>
   </div>`;
 }
@@ -8248,82 +8523,6 @@ function pesBlocoSemIndicar(rank){
    têm n suficiente: comparar 8 fechados com 2 fechados produz uma frase
    redonda e falsa, e frase redonda e falsa é o jeito mais rápido de o
    sistema inteiro perder a confiança de quem le. */
-function pesBlocoComparativo(){
-  var c = pesComparaIndicacao(), a = c.ind, b = c.out;
-  if(!a.nFech && !b.nFech) return "";
-
-  var partes = [];
-  if(a.nFech >= 3 && b.nFech >= 3){
-    if(b.taxa > 0 && a.taxa > 0){
-      var r = a.taxa / b.taxa;
-      if(r >= 1.05)      partes.push("ganha " + pesNumBR(r) + " vezes mais");
-      else if(r <= 0.95) partes.push("ganha " + pesNumBR(1/r) + " vezes menos");
-      else               partes.push("ganha na mesma proporção");
-    } else if(a.taxa > 0 && b.taxa === 0){
-      // Dizer "nenhum negócio de outra origem fechou ainda" seria falso:
-      // eles fecharam, todos perdidos, e o bloco ao lado mostra o número.
-      partes.push("ganha " + pct(a.taxa,0) + " das vezes, e nenhum dos " +
-                  pesQtd(b.nFech, "negócio", "negócios") + " de outra origem foi ganho");
-    }
-  }
-  if(a.ciclos.length >= 3 && b.ciclos.length >= 3){
-    var d = mediana(b.ciclos) - mediana(a.ciclos);
-    if(d > 0)      partes.push("fecha " + pesDias(d) + " antes");
-    else if(d < 0) partes.push("fecha " + pesDias(-d) + " depois");
-    else           partes.push("fecha no mesmo tempo");
-  }
-  var frase = partes.length ? "Negócio indicado " + partes.join(" e ") + "." : "";
-
-  /* Quando a frase não sai, a tela precisa dizer o motivo CERTO. Antes ela
-     acusava sempre amostra pequena, e mentia na base em que os dois lados
-     tinham 3 fechados ou mais e ninguém tinha ganhado nada ainda: os
-     números logo abaixo mostravam 3 e 3, e o texto dizia que faltava
-     amostra. Texto que discorda do número ao lado derruba a confiança em
-     todo o resto da tela. */
-  var semFrase;
-  if(a.nFech < 3 || b.nFech < 3){
-    var curto = a.nFech < 3 ? "os indicados" : "as outras origens";
-    semFrase = "Ainda não dá pra comparar: " + curto + " tem " +
-      pesQtd(Math.min(a.nFech, b.nFech), "negócio fechado", "negócios fechados") +
-      ", e abaixo de 3 a frase sai bonita e errada. Indicados: " +
-      pesQtd(a.nFech, "fechado", "fechados") + ". Outras origens: " +
-      pesQtd(b.nFech, "fechado", "fechados") + ".";
-  } else if(!a.nGanhos && !b.nGanhos){
-    semFrase = "Os dois lados já têm fechamento suficiente (" + a.nFech + " indicados e " +
-      b.nFech + " de outras origens), mas nenhum negócio foi ganho ainda, então não existe taxa pra comparar.";
-  } else if(!a.nGanhos){
-    semFrase = "Nenhum dos " + pesQtd(a.nFech, "negócio indicado fechado", "negócios indicados fechados") +
-      " foi ganho ainda, então a comparação de taxa sairia como zero contra tudo e não diria nada.";
-  } else {
-    semFrase = "Dá pra comparar a taxa, mas não o ciclo: falta data de criação ou de fechamento em pelo menos um dos lados, " +
-      "que têm " + a.ciclos.length + " e " + b.ciclos.length + " ciclos completos, e o mínimo é 3 de cada.";
-  }
-
-  return `<div class="card">
-    <div class="sec-title">Indicado contra não indicado${ajuda("conversao")}</div>
-    <div class="sec-sub">Só negócio já fechado entra. Quem a gente desqualificou ("não era perfil") fica fora do denominador da taxa.</div>
-    ${frase ? `<div class="h1" style="margin-top:13px;color:var(--lime);font-size:20px;line-height:1.3">${esc(frase)}</div>` : `<div class="tiny muted" style="margin-top:13px">${esc(semFrase)}</div>`}
-    <div class="grid2" style="margin-top:15px">
-      ${pesColunaComparativo("Veio de indicação", a)}
-      ${pesColunaComparativo("Outras origens", b)}
-    </div>
-    <div class="tiny muted" style="margin-top:11px;line-height:1.6">
-      Ticket junta valor total de contrato de agência com cota de patrocínio. Serve pra comparar esforço, não é caixa.
-    </div>
-  </div>`;
-}
-function pesColunaComparativo(rot, s){
-  var taxa = s.nFech
-    ? '<b>' + pct(s.taxa,0) + '</b> <span class="tiny muted">(' + s.nGanhos + ' ganhos de ' + s.nFech + ' fechados)</span>' +
-      (s.nFech < 3 ? ' <span class="tiny" style="color:var(--text3);opacity:.7">amostra pequena</span>' : '')
-    : '<span class="muted small">nenhum negócio fechado ainda</span>';
-  return `<div class="card" style="background:var(--card2)">
-    <div class="h3">${esc(rot)}</div>
-    <div style="margin-top:11px"><div class="tiny muted">Taxa de ganho</div><div style="font-size:15px">${taxa}</div></div>
-    <div style="margin-top:11px"><div class="tiny muted">Ciclo até fechar (dias)</div><div style="font-size:15px">${pesEstat(s.ciclos, pesDias)}</div></div>
-    <div style="margin-top:11px"><div class="tiny muted">Ticket do ganho (R$)</div><div style="font-size:15px">${pesEstat(s.tickets, brl)}</div></div>
-  </div>`;
-}
 
 /* ---------------------------------------------------------------------
    TELA: PESSOA (detalhe)
@@ -8340,7 +8539,7 @@ TELAS.pessoa = function(){
 
   var bloq = motivoBloqueio("crm_contatos");
   var semTel = pesMotivoTel(c.tel);
-  var rank = rankIndicadores(), meu = null, i;
+  var rank = rankQuemTraz(), meu = null, i;
   for(i=0;i<rank.length;i++) if(rank[i].id === c.id) meu = rank[i];
 
   var neg = lista("negocios");
@@ -8374,6 +8573,7 @@ TELAS.pessoa = function(){
       ${semTel ? pesBotao("Ligar","",{},"",semTel) : '<a class="btn" href="tel:+' + esc(pesTelComDDI(c.tel)) + '">Ligar</a>'}
       ${c.email ? '<a class="btn" href="mailto:' + esc(c.email) + '">E-mail</a>' : pesBotao("E-mail","",{},"","Sem e-mail cadastrado.")}
       ${pesBotao("Pedir indicação","pessoaPedirIndicacao",{ id:c.id },"",semTel)}
+      ${pesBotao("+ Tarefa","tfDaPessoa",{ id:c.id },"",motivoBloqueio("crm_tarefas"))}
       ${pesBotao("Editar","pessoaEditar",{ id:c.id },"",bloq)}
       ${c.arquivado
         ? pesBotao("Restaurar","pessoaRestaurar",{ id:c.id },"",bloq)
@@ -8391,7 +8591,7 @@ TELAS.pessoa = function(){
   // Bloco de indicação: a marca, o acordo combinado e o que já rendeu.
   h += `<div class="card ${c.ehIndicador ? "card-lime" : ""}">
     <div class="card-head" style="margin-bottom:11px">
-      <div class="sec-title">Indicação</div>
+      <div class="sec-title">O que essa pessoa trouxe</div>
       ${pesBotao(c.ehIndicador ? "Tirar a marca de indicador" : "Marcar como indicador","pessoaToggleIndicador",{ id:c.id },"btn-sm",bloq)}
     </div>
     ${c.ehIndicador
@@ -9191,6 +9391,7 @@ TELAS.painel = function(){
          pnlBlocoPrevisao(N) +
          pnlBlocoSaude(S, N) +
          pnlBlocoCaptacao(ym) +
+         pnlBlocoOrigens() +
          pnlBlocoGanhosPerdas() +
          pnlBlocoEdicoes() +
          pnlBlocoMeta(N);
@@ -9687,6 +9888,141 @@ function pnlBlocoCaptacao(ym){
   return h + '</div>';
 }
 
+
+/* ---------------------------------------------------------------------
+   POR ORIGEM
+
+   A pergunta que este bloco responde: de onde vem o negocio que a casa
+   ganha, e quanto custa cada caminho em tempo.
+
+   POR QUE ELE NASCEU: ate 11/09/2026 o sistema nao tinha analise por
+   origem nenhuma. A unica coisa parecida era uma comparacao binaria na
+   tela Pessoas, indicacao contra um balde chamado "outras origens", com
+   quatro das cinco origens sem existir individualmente em lugar nenhum.
+   Era medir uma coisa so e chamar de analise.
+
+   COMO OS OUTROS CRMs FAZEM: origem e uma DIMENSAO, igual a etapa e ao
+   responsavel. Ninguem constroi tela em cima de um canal. Aqui e a mesma
+   ideia: uma linha por origem, as mesmas colunas pra todas.
+
+   JANELA DE 12 MESES, nao o mes escolhido. Origem e pergunta de padrao,
+   nao de mes: com um mes so, quatro das cinco linhas ficariam com dois
+   ou tres casos e a tela viraria ruido com cara de dado.
+   --------------------------------------------------------------------- */
+function pnlPorOrigem(){
+  var corte = somaDias(hojeISO(), -365);
+  var todos = lista("negocios"), i, n;
+  var linhas = {}, ordem = [];
+  for(i=0;i<ORIGENS.length;i++){
+    linhas[ORIGENS[i][0]] = { k:ORIGENS[i][0], rot:ORIGENS[i][1],
+                              entraram:0, abertos:0, ganhos:0, perdidos:0,
+                              gerado:0, ciclos:[], tickets:[] };
+    ordem.push(ORIGENS[i][0]);
+  }
+  /* Balde pra origem que nao existe mais na lista. Negocio antigo com
+     origem apagada some da conta se nao tiver onde cair, e a soma das
+     linhas deixa de bater com o total sem ninguem perceber. */
+  linhas.__sem = { k:"__sem", rot:"Sem origem anotada", entraram:0, abertos:0, ganhos:0,
+                   perdidos:0, gerado:0, ciclos:[], tickets:[] };
+
+  for(i=0;i<todos.length;i++){
+    n = todos[i];
+    if(n.arquivado) continue;
+    if((n.criadoEm || "") < corte) continue;
+    var L = linhas[n.origem] || linhas.__sem;
+    L.entraram++;
+    if(n.status === "aberto") L.abertos++;
+    else if(n.status === "perdido"){
+      /* fora_do_perfil sai do denominador da taxa: contar desqualificacao
+         como derrota pune a unica disciplina que faz um time pequeno
+         sobreviver. Mesma regra do resto do Painel. */
+      if(n.motivoPerda !== "fora_do_perfil") L.perdidos++;
+    } else {
+      L.ganhos++;
+      L.gerado += valorRefDe(n);
+      if(valorRefDe(n) > 0) L.tickets.push(valorRefDe(n));
+      if(n.criadoEm && n.fechadoEm){
+        var d = diasEntre(n.criadoEm, n.fechadoEm);
+        if(d >= 0) L.ciclos.push(d);
+      }
+    }
+  }
+
+  var r = [];
+  for(i=0;i<ordem.length;i++) r.push(linhas[ordem[i]]);
+  if(linhas.__sem.entraram) r.push(linhas.__sem);
+  for(i=0;i<r.length;i++){
+    var L2 = r[i];
+    var fech = L2.ganhos + L2.perdidos;
+    L2.fechados = fech;
+    L2.taxa = fech ? (L2.ganhos / fech) * 100 : null;
+    L2.ciclo = L2.ciclos.length ? mediana(L2.ciclos) : null;
+    L2.ticket = L2.tickets.length ? mediana(L2.tickets) : null;
+  }
+  r.sort(function(a, b){ return b.entraram - a.entraram; });
+  return r;
+}
+
+function pnlBlocoOrigens(){
+  var L = pnlPorOrigem();
+  var total = 0, i;
+  for(i=0;i<L.length;i++) total += L[i].entraram;
+
+  var h = '<div class="card">' +
+    '<div class="card-head"><div>' +
+      '<div class="sec-title">Por origem' + ajuda("por_origem") + '</div>' +
+      '<div class="sec-sub">Janela de 12 meses. De onde vem o negócio, e o que cada caminho ' +
+      'entrega depois que entra.</div>' +
+    '</div></div>';
+
+  if(!total){
+    return h + '<div class="empty"><div class="ei">🧭</div>' +
+      '<div class="et">Nenhum negócio nos últimos 12 meses</div>' +
+      '<div class="ex">Toda origem aparece aqui assim que o primeiro negócio dela entrar. ' +
+      'Nenhuma tem tratamento diferente das outras.</div></div></div>';
+  }
+
+  h += '<div class="tw"><table class="tb"><thead><tr>' +
+    '<th>Origem</th><th class="r">Entraram</th><th class="r">Em aberto</th>' +
+    '<th class="r">Ganhos</th><th class="r">Taxa</th><th class="r">Ciclo</th>' +
+    '<th class="r">Ticket</th><th class="r">Gerado</th>' +
+    '</tr></thead><tbody>';
+
+  for(i=0;i<L.length;i++){
+    var o = L[i];
+    var fatia = total ? Math.round((o.entraram / total) * 100) : 0;
+    h += '<tr' + (o.entraram ? ' data-a="verLista" data-lista="origem" data-k="' + esc(o.k) + '"' : '') + '>' +
+      '<td><b>' + esc(o.rot) + '</b>' +
+        (o.entraram ? '<div class="cel-sub">' + fatia + '% do que entrou</div>' : '') + '</td>' +
+      '<td class="r mono-num">' + o.entraram + '</td>' +
+      '<td class="r mono-num">' + (o.abertos || '<span class="muted">-</span>') + '</td>' +
+      '<td class="r mono-num">' + (o.ganhos || '<span class="muted">-</span>') + '</td>' +
+      /* Taxa com o n do lado SEMPRE. 100% de um negocio nao e 100%, e um
+         negocio, e com cinco origens numa base pequena isso acontece o
+         tempo todo. */
+      '<td class="r mono-num">' + (o.taxa === null ? '<span class="muted">-</span>'
+        : esc(pct(o.taxa, 0)) + '<div class="cel-sub">de ' + o.fechados + '</div>') + '</td>' +
+      '<td class="r mono-num">' + pnlNumComAmostra(o.ciclo, o.ciclos.length, " dias") + '</td>' +
+      '<td class="r mono-num">' + (o.ticket === null ? '<span class="muted">-</span>'
+        : esc(brlCurto(o.ticket)) + (o.tickets.length < 3
+            ? '<div class="cel-sub">n=' + o.tickets.length + '</div>' : '')) + '</td>' +
+      '<td class="r mono-num">' + (o.gerado ? esc(brlCurto(o.gerado)) : '<span class="muted">-</span>') + '</td>' +
+    '</tr>';
+  }
+  h += '</tbody></table></div>';
+
+  h += '<div class="tiny muted" style="margin-top:10px">' +
+    'Ticket e ganho misturam contrato inteiro de mensalidade com valor de uma vez, então servem pra ' +
+    'comparar origem com origem, não pra virar caixa. Taxa e ciclo contam só negócio já fechado, e ' +
+    'desqualificado fica fora da conta.</div>';
+  return h + '</div>';
+}
+/* Numero com a amostra ao lado quando ela e pequena demais pra media. */
+function pnlNumComAmostra(v, n, sufixo){
+  if(v === null || v === undefined) return '<span class="muted">-</span>';
+  return esc(String(v) + sufixo) + (n < 3 ? '<div class="cel-sub">n=' + n + '</div>' : '');
+}
+
 function pnlBlocoGanhosPerdas(){
   var G = pnlGanhosPerdas();
   var h = '<div class="card">' +
@@ -10060,6 +10396,20 @@ function pnlListaDef(qual, el){
       return { t:"Desqualificados nos 12 meses",
                sub:"Ficam fora do denominador da taxa de ganho: contar desqualificação como derrota pune a disciplina de dizer não.",
                itens:G.foraPerfil, modo:"valor" };
+    case "origem":
+      /* Mesma janela de 12 meses do bloco, senao o numero da tabela e o
+         tamanho da lista discordam e a pessoa para de confiar nos dois. */
+      var corteO = somaDias(hojeISO(), -365);
+      var rotO = rotOrigem(k);
+      if(k === "__sem") rotO = "sem origem anotada";
+      return { t:"Origem: " + rotO, sub:"Tudo que entrou nos últimos 12 meses por esse caminho, aberto e fechado.",
+               itens:lista("negocios").filter(function(n){
+                 if(n.arquivado) return false;
+                 if((n.criadoEm || "") < corteO) return false;
+                 var existe = false;
+                 for(var z=0;z<ORIGENS.length;z++) if(ORIGENS[z][0] === n.origem) existe = true;
+                 return k === "__sem" ? !existe : n.origem === k;
+               }), modo:"valor" };
     case "motivo":
       G = pnlGanhosPerdas();
       var mp = motivoPerdaDe(k);
@@ -10408,12 +10758,12 @@ function buscar(termo){
     if(aa !== bb) return aa - bb;
     return valorOrdem(b) - valorOrdem(a);
   });
-  // Indicador primeiro: é quem se procura com pressa pra pedir um empurrao.
-  cs.sort(function(a,b){
-    var aa = a.ehIndicador ? 0 : 1, bb = b.ehIndicador ? 0 : 1;
-    if(aa !== bb) return aa - bb;
-    return chave(a.nome) < chave(b.nome) ? -1 : 1;
-  });
+  /* ORDEM POR RELEVANCIA, nao por papel. Antes quem estava marcado como
+     indicador subia pro topo antes de qualquer criterio de busca, o que
+     fazia a pessoa errada aparecer primeiro so por ter uma caixinha
+     marcada na ficha. Era o ultimo lugar onde a indicacao mandava na
+     ordem de uma lista. */
+  cs.sort(function(a,b){ return chave(a.nome) < chave(b.nome) ? -1 : 1; });
 
   // total é o numero HONESTO de casamentos. As listas vem cortadas em 5,
   // e a tela usa o total pra dizer "5 de 12" em vez de mentir. O total de
@@ -10527,7 +10877,7 @@ function cadItemContato(c){
   else if(c.email) sub.push(c.email);
   if(c.ehIndicador) sub.push("indicador");
   return '<button class="search-it" type="button" data-a="buscaAbrir" data-r="pessoa/' + esc(c.id) + '">' +
-    '<span class="dot" style="background:' + (c.ehIndicador ? "var(--lime)" : "var(--text3)") + ';margin-top:6px"></span>' +
+    '<span class="dot" style="background:' + "var(--text3)" + ';margin-top:6px"></span>' +
     '<span style="flex:1;min-width:0">' +
       '<span class="t truncate" style="display:block">' + esc(c.nome) + '</span>' +
       '<span class="s truncate" style="display:block">' + esc(sub.join(" · ") || "sem telefone e sem e-mail") + '</span>' +
@@ -10722,12 +11072,13 @@ function abrirNovoNegocio(pre){
         '<div class="pills" id="nnOrigens"></div>' +
       '</div>' +
 
-      '<div class="fld" id="nnIndicBloco" hidden>' +
-        '<label>Quem indicou <span class="req">*</span></label>' +
+      '<div class="fld" id="nnIndicBloco">' +
+        '<label>Quem trouxe este negócio<span id="nnIndicReq"></span>' + ajuda("quem_trouxe") + '</label>' +
         '<div id="nnIndicEscolhido"></div>' +
         '<input class="inp" id="nnIndicBusca" autocomplete="off" maxlength="120" ' +
           'placeholder="digite o nome, mesmo que não exista ainda">' +
         '<div id="nnIndicOut"></div>' +
+        '<div class="hint" id="nnIndicHint"></div>' +
       '</div>' +
 
       '<div class="fld">' +
@@ -10890,10 +11241,28 @@ function nnPintarContatoBusca(){
   out.innerHTML = h;
 }
 
+/* O bloco de "quem trouxe" aparece em TODA origem.
+
+   Antes ele so existia quando a origem era indicacao, e o efeito colateral
+   era invisivel: quem conheceu a pessoa num evento, ou foi apresentado
+   por um cliente, nao tinha onde anotar quem abriu a porta. O dado
+   simplesmente nao existia pras outras quatro origens, e por isso a
+   unica analise possivel era sobre indicacao.
+
+   Obrigatorio so na indicacao, e por um motivo pratico: indicacao sem o
+   nome de quem indicou nao serve pra nada, nem pra agradecer. Nas outras
+   e opcional porque prospeccao fria de verdade nao tem ninguem por tras. */
 function nnPintarIndicBloco(){
   var b = document.getElementById('nnIndicBloco');
   if(!b || !NOVO) return;
-  b.hidden = (NOVO.origem !== "indicacao");
+  b.hidden = false;
+  var ehInd = NOVO.origem === "indicacao";
+  var req = document.getElementById('nnIndicReq');
+  if(req) req.innerHTML = ehInd ? ' <span class="req">*</span>' : '';
+  var hint = document.getElementById('nnIndicHint');
+  if(hint) hint.textContent = ehInd
+    ? "Obrigatório aqui: indicação sem o nome de quem indicou não dá nem pra agradecer."
+    : "Opcional. Quem te apresentou, quem você conheceu no evento, quem pediu pra te procurar.";
   var esc1 = document.getElementById('nnIndicEscolhido');
   var inp  = document.getElementById('nnIndicBusca');
   var out  = document.getElementById('nnIndicOut');
@@ -11059,7 +11428,7 @@ ACOES.salvarNovoNegocio = function(form){
   if(empresa.length < 2){ falha("Escreva o nome da empresa."); return; }
   if(!NOVO.origem){ falha("Diga de onde veio esse negócio."); return; }
   if(NOVO.origem === "indicacao" && !NOVO.indicadorId){
-    falha("Escolha quem indicou, ou crie o contato ali mesmo no campo."); return;
+    falha("Escolha quem indicou, ou escreva o nome ali mesmo no campo."); return;
   }
   var pp = lerProxPasso('np');
   // O proximo passo é obrigatorio NO CADASTRO, e por isso a checagem olha
@@ -11511,7 +11880,17 @@ function abrirMensagem(ctx){
   // Contexto: quais modelos fazem sentido aqui. Mostrar os sete sempre
   // transforma a escolha num formulario, e o vendedor para de usar.
   var ok = { sempre:true };
-  if(n){ ok[n.tipo] = true; if(n.origem === "indicacao") ok.indicacao = true; }
+  /* O que destrava modelo agora e TER ALGUEM que trouxe o negocio, nao a
+     origem ser indicacao. Um negocio de evento com a pessoa anotada
+     merece o mesmo texto de agradecimento. */
+  if(n){
+    ok[n.tipo] = true;
+    if(quemTrouxe(n)) ok.trouxe = true;
+    if(n.origem) ok["origem_" + n.origem] = true;
+    /* Alias do valor antigo: modelo gravado antes da reforma tem
+       quando:"indicacao" e continuaria invisivel pra sempre. */
+    if(n.origem === "indicacao") ok.indicacao = true;
+  }
   if(nome) ok.contato = true;
 
   var pills = '<button type="button" class="pill on" data-a="msgModelo" data-k="">Sem modelo</button>';
@@ -12504,26 +12883,27 @@ function tuFigAbas(){
     ["⚡", "Hoje",     "o que cobrar agora"],
     ["▦", "Funil",    "tudo em aberto, por etapa"],
     ["💼", "Negócios", "a lista com busca e filtro"],
-    ["👥", "Pessoas",  "quem indica quem"],
+    ["👥", "Pessoas",  "a agenda de contatos"],
+    ["☑", "Tarefas",  "o que não é negócio"],
     ["📊", "Painel",   "os números do mês"],
-    ["🔑", "Acessos",  "quem entra e com que poder"]
+    ["⚙", "Config",   "funis, modelos e acessos"]
   ];
   var d = tuCaixa(6, 6, 748, 132, "", "rgba(255,255,255,0.07)", "#141414"), i;
   for(i=0;i<itens.length;i++){
-    var x = 18 + i * 123;
-    d += tuCaixa(x, 22, 112, 100, "", (i === 0 ? "rgba(200,255,0,0.25)" : "rgba(255,255,255,0.13)"),
+    var x = 12 + i * 106;
+    d += tuCaixa(x, 22, 96, 100, "", (i === 0 ? "rgba(200,255,0,0.25)" : "rgba(255,255,255,0.13)"),
                  (i === 0 ? "rgba(200,255,0,0.10)" : "#1A1A1A"));
-    d += tuTexto(x + 56, 56, itens[i][0], 20, "#FFFFFF", 400, "middle");
-    d += tuTexto(x + 56, 80, itens[i][1], 13, (i === 0 ? "#C8FF00" : "#FFFFFF"), 600, "middle");
+    d += tuTexto(x + 48, 56, itens[i][0], 19, "#FFFFFF", 400, "middle");
+    d += tuTexto(x + 48, 80, itens[i][1], 12, (i === 0 ? "#C8FF00" : "#FFFFFF"), 600, "middle");
     var p = itens[i][2].split(" "), linha1 = "", linha2 = "";
     for(var j=0;j<p.length;j++){
-      if((linha1 + " " + p[j]).length <= 16 && !linha2) linha1 += (linha1 ? " " : "") + p[j];
+      if((linha1 + " " + p[j]).length <= 14 && !linha2) linha1 += (linha1 ? " " : "") + p[j];
       else linha2 += (linha2 ? " " : "") + p[j];
     }
-    d += tuTexto(x + 56, 98, linha1, 10.5, "#ADADAD", 400, "middle");
-    if(linha2) d += tuTexto(x + 56, 111, linha2, 10.5, "#ADADAD", 400, "middle");
+    d += tuTexto(x + 48, 98, linha1, 10, "#ADADAD", 400, "middle");
+    if(linha2) d += tuTexto(x + 48, 110, linha2, 10, "#ADADAD", 400, "middle");
   }
-  return tuFig(760, 144, d, "As seis abas do menu da esquerda. Acessos só aparece pra quem é Admin.");
+  return tuFig(760, 144, d, "As abas do menu da esquerda, mais o Tutorial. Configurações só mexe de verdade quem é Admin.");
 }
 
 /* ---------- figura 2: os dois funis, desenhados a partir de FUNIL ---------- */
@@ -12656,7 +13036,7 @@ TELAS.tutorial = function(){
     'Se você só tiver dois minutos por dia, gaste na aba Hoje.</p></div>';
 
   h += tuPasso(1, "As abas, e pra que serve cada uma",
-    '<p>O menu da esquerda (no celular, embaixo) tem seis abas. Elas não são seis programas: são seis jeitos de olhar ' +
+    '<p>O menu da esquerda (no celular, embaixo) tem oito abas. Elas não são seis programas: são seis jeitos de olhar ' +
     'a mesma lista de negócios.</p>' +
     '<p class="tiny" style="color:var(--text2)">O número vermelho ao lado de <b>Hoje</b> é quanta coisa está atrasada. ' +
     'Se ele estiver em zero, você está em dia, e pode fechar o CRM em paz.</p>',
@@ -12707,17 +13087,30 @@ TELAS.tutorial = function(){
     'há mais tempo do que a etapa aguenta. Vem ordenado: o mais urgente e mais caro primeiro.</p>',
     tuFigCard());
 
-  h += tuPasso(8, "De onde o negócio veio, e quem indicou",
-    '<p>Todo negócio tem uma <b>origem</b>. As duas que mais importam aqui são ' +
-    '<b>indicação</b>, que é alguém apresentando o cliente, e <b>prospecção nossa</b>, ' +
-    'que é a captação ativa. Elas convivem, e o Painel compara as duas.</p>' +
-    '<p>Quando um negócio nasce de indicação, anote <b>quem indicou</b>. Não é burocracia. ' +
-    'É o que faz a aba <b>Pessoas</b> responder quem realmente traz dinheiro pra dentro, ' +
+  h += tuPasso(8, "De onde o negócio veio, e quem abriu a porta",
+    '<p>Todo negócio tem uma <b>origem</b>: indicação, cliente atual, site ou DM, evento, ' +
+    'ou prospecção nossa. <b>Nenhuma delas é a principal.</b> O Painel mostra as cinco lado a lado, ' +
+    'com as mesmas colunas, e quem traz mais aparece no número, não no desenho da tela.</p>' +
+    '<p>Em qualquer origem você pode anotar <b>quem trouxe o negócio</b>. Na indicação é quem indicou, ' +
+    'no evento é quem você conheceu lá, no cliente atual é quem te apresentou por dentro. ' +
+    'Não é burocracia. ' +
+    'É o que faz a aba <b>Pessoas</b> responder quem realmente traz negócio pra dentro, ' +
     'e quem anda sumido e merece uma ligação.</p>' +
-    '<p class="tiny" style="color:var(--text2)">Negócio com origem indicação e sem indicador anotado aparece ' +
-    'em amarelo na aba Pessoas, pra você completar depois.</p>');
+    '<p class="tiny" style="color:var(--text2)">Só na indicação o campo é obrigatório, porque indicação ' +
+    'sem o nome de quem indicou não dá nem pra agradecer. Nas outras é opcional.</p>');
 
-  h += tuPasso(9, "O Painel, e o que cada número quer dizer",
+  h += tuPasso(9, "Tarefa não é próximo passo",
+    '<p>São duas coisas parecidas que fazem trabalhos diferentes, e misturar as duas é o jeito mais ' +
+    'rápido de parar de confiar no CRM.</p>' +
+    '<p><b>Próximo passo</b> mora dentro do negócio aberto. É um por negócio, tem data, e é ele que ' +
+    'puxa o negócio pra fila do Hoje. Enquanto o negócio está vivo, é esse o compromisso.</p>' +
+    '<p><b>Tarefa</b> é pro resto: o que não tem negócio embaixo (ligar pro contador, cobrar um material) ' +
+    'e o que sobrou de um negócio já fechado, como lembrar da renovação daqui a dez meses. Tem aba própria, ' +
+    'com o que está atrasado, o que é pra hoje e o que vem depois.</p>' +
+    '<p class="tiny" style="color:var(--text2)">Toda tarefa tem dono. Por isso a sua fila é a sua: ' +
+    'tarefa de outra pessoa só aparece se você pedir pra ver a do time.</p>');
+
+  h += tuPasso(10, "O Painel, e o que cada número quer dizer",
     '<p>Todo número no Painel tem uma bolinha <b>?</b> do lado. Passe o mouse (ou toque, no celular) ' +
     'e ele explica de onde saiu a conta.</p>' +
     '<p>Duas leituras não confunda: <b>fechado no mês</b> é o que virou contrato neste mês. ' +
@@ -12725,7 +13118,7 @@ TELAS.tutorial = function(){
     '<p class="tiny" style="color:var(--text2)">Média só aparece com 3 casos ou mais. Com menos que isso, ' +
     'o CRM lista os valores um a um, porque média de dois números engana.</p>');
 
-  h += tuPasso(10, "Configurações: moldar o CRM ao jeito da casa",
+  h += tuPasso(11, "Configurações: moldar o CRM ao jeito da casa",
     '<p>A aba <b>Configurações</b> junta tudo que dá pra criar e mudar sem programador: ' +
     'os <b>funis</b> (os tipos de negócio e as etapas de cada um), os <b>modelos de mensagem</b> ' +
     '(textos prontos com lacunas que o sistema preenche) e os <b>acessos</b>.</p>' +
@@ -12734,20 +13127,20 @@ TELAS.tutorial = function(){
     '<p class="tiny" style="color:var(--text2)">Nada disso se apaga de verdade, só desliga. ' +
     'Um funil ou um modelo que sumisse deixaria o histórico apontando pra coisa que não existe mais.</p>');
 
-  h += tuPasso(11, "Acessos: quem entra e com que poder",
+  h += tuPasso(12, "Acessos: quem entra e com que poder",
     '<p>Só quem é Admin vê Acessos e Funis. <b>Admin</b> mexe em tudo, cria gente e cria funis. ' +
     '<b>SDR</b> e <b>Closer</b> operam os negócios com exatamente o mesmo poder, e a diferença ' +
     'entre os dois é o papel, não a permissão. <b>Gestor</b> vê tudo mas só registra observação.</p>' +
     '<p>Leitura é o perfil pra quem quer acompanhar sem risco de mexer sem querer. ' +
     'Quem está em Leitura vê os botões desabilitados com o motivo escrito, em vez de clicar e dar erro.</p>');
 
-  h += tuPasso(12, "A regra de ouro do que escrever aqui",
+  h += tuPasso(13, "A regra de ouro do que escrever aqui",
     '<p>Esta página está aberta pra quem tiver o endereço. Então vale uma régua simples: ' +
     '<b>se você não mandaria num grupo de WhatsApp com 50 pessoas, não escreve aqui.</b></p>' +
     '<p>Nada de CPF, CNPJ, dado bancário, cláusula de contrato ou comentário pessoal sobre alguém. ' +
     'Nome da empresa, valor, etapa e o que foi conversado: isso sim.</p>');
 
-  h += tuPasso(13, "Sem internet, continua funcionando",
+  h += tuPasso(14, "Sem internet, continua funcionando",
     '<p>O CRM guarda o que você fez no próprio aparelho e manda pro servidor quando a conexão voltar. ' +
     'O indicador no topo mostra o estado: sincronizado, gravando, ou pendente.</p>' +
     '<p class="tiny" style="color:var(--text2)">Só não feche o aplicativo com pendência e troque de celular no mesmo minuto. ' +
@@ -13131,7 +13524,7 @@ var MODELO_VARS = [
   ["nome",        "primeiro nome de quem recebe"],
   ["vendedor",    "seu nome"],
   ["empresa",     "empresa do negócio"],
-  ["indicador",   "quem indicou"],
+  ["indicador",   "quem trouxe o negócio"],
   ["mrr",         "fee mensal, já em reais"],
   ["meses",       "meses de contrato"],
   ["valor",       "valor da cota, já em reais"],
@@ -13146,13 +13539,27 @@ var MODELO_VARS = [
   ["gancho",      "você preenche na hora"]
 ];
 
+/* QUANDO CADA MODELO APARECE.
+
+   A lista e MONTADA a partir de ORIGENS, nao escrita a mao. Antes so a
+   indicacao tinha condicao propria, entao era a unica origem pra qual
+   dava pra escrever um texto sob medida: quem prospectava, ia a evento ou
+   recebia lead do site nao tinha como ter modelo proprio.
+
+   Montar da lista tambem resolve o futuro: origem nova entra aqui
+   sozinha, sem ninguem lembrar de editar esta constante. */
 var MODELO_QUANDO = [
   ["sempre",     "Em qualquer conversa"],
   ["agencia",    "Só em negócio de mensalidade"],
   ["patrocinio", "Só em negócio de valor único"],
-  ["indicacao",  "Só quando o negócio veio de indicação"],
+  ["trouxe",     "Só quando alguém trouxe o negócio"],
   ["contato",    "Só quando a conversa tem uma pessoa no nome"]
 ];
+(function(){
+  for(var i=0;i<ORIGENS.length;i++)
+    MODELO_QUANDO.push(["origem_" + ORIGENS[i][0],
+                        "Só quando veio de " + ORIGENS[i][1].toLowerCase()]);
+})();
 
 function aplicarModelos(docs){
   MODELOS = JSON.parse(JSON.stringify(MODELOS_SEMENTE));
@@ -13510,6 +13917,366 @@ TELAS.config = function(){
     'Está sentindo falta de configurar alguma coisa que não está aqui? Essa lista cresce. ' +
     'O que hoje é fixo no código pode virar campo desta tela.</div></div>';
   return h;
+};
+
+/* ============ 16-tarefas ============ */
+/* =====================================================================
+   CRM LIME - TAREFAS
+
+   A tela do que precisa ser feito e nao cabe dentro de um negocio aberto.
+
+   A FRONTEIRA COM O PROXIMO PASSO, que e a decisao mais importante aqui:
+
+     negocio ABERTO      -> proximo passo. Um por negocio, com data, e a
+                            fila do Hoje cobra. Nao existe botao de criar
+                            tarefa ali.
+     negocio FECHADO     -> tarefa. O proximo passo e zerado no
+                            fechamento, e a partir dali a tarefa e o unico
+                            jeito de ter compromisso com aquele negocio.
+     sem negocio nenhum  -> tarefa. E a unica casa que existe.
+
+   POR QUE NAO COPIAR O RD STATION AQUI
+   No RD Station CRM toda tarefa e obrigatoriamente amarrada a uma
+   negociacao aberta, e ela faz exatamente o papel que aqui o proximo
+   passo ja faz. Copiar literal criaria dois lugares cobrando a mesma
+   coisa sem conversar entre si, e a pessoa aprende rapido a ignorar os
+   dois. O que este CRM pega emprestado do RD e outra coisa: o vocabulario
+   de tipos (ligacao, e-mail, reuniao, visita, WhatsApp), o formulario
+   unico e curto, e o lugar canonico de criar.
+
+   O QUE ESTA TELA FAZ QUE O HOJE NAO FAZ
+   O Hoje tem teto de 8 itens e mostra no maximo 3 tarefas, de proposito:
+   fila que nao acaba a pessoa para de abrir. Aqui esta tudo, agrupado
+   por quando vence, mais o que ja foi concluido.
+   ===================================================================== */
+
+var TAREFAS_VISAO = "abertas";   // "abertas" | "feitas"
+var TAREFAS_MINHAS = null;       // null = decide pelo perfil, igual ao Hoje
+
+function tfSoMinhas(){
+  if(TAREFAS_MINHAS !== null) return TAREFAS_MINHAS;
+  return !(ehAdmin() || (PERM && PERM.negocios === "ver"));
+}
+function tfMinha(t){
+  if(!t.donoId) return true;                 // tarefa velha, de antes do dono
+  if(!SESSAO || !SESSAO.acessoId) return true;
+  return t.donoId === SESSAO.acessoId;
+}
+/* Todas as tarefas que interessam a esta tela, ja filtradas por dono. */
+function tfLista(feitas){
+  var r = lista("tarefas").filter(function(t){
+    if(t.arquivado) return false;
+    if(!!t.feita !== !!feitas) return false;
+    if(tfSoMinhas() && !tfMinha(t)) return false;
+    return true;
+  });
+  r.sort(function(a, b){
+    if(feitas) return (b.feitaEm || b.data || "") < (a.feitaEm || a.data || "") ? -1 : 1;
+    return (a.data || "") < (b.data || "") ? -1 : 1;
+  });
+  return r;
+}
+/* Em que gaveta a tarefa cai. A ordem das gavetas e a ordem da urgencia,
+   e o nome de cada uma responde "por que isso esta aqui". */
+function tfGaveta(t){
+  var hoje = hojeISO();
+  if(!t.data) return "sem_data";
+  if(t.data < hoje) return "atrasada";
+  if(t.data === hoje) return "hoje";
+  if(t.data <= somaDias(hoje, 7)) return "semana";
+  return "depois";
+}
+var TF_GAVETAS = [
+  ["atrasada", "Atrasadas",        "var(--red)"],
+  ["hoje",     "Hoje",             "var(--lime)"],
+  ["semana",   "Próximos 7 dias",  "var(--text2)"],
+  ["depois",   "Mais pra frente",  "var(--text3)"],
+  ["sem_data", "Sem data",         "var(--warn)"]
+];
+
+TELAS.tarefas = function(){
+  var bloq = motivoBloqueio("crm_tarefas");
+  var abertas = tfLista(false), feitas = tfLista(true);
+
+  /* #/tarefas/nova cai direto no formulario, igual aos outros "+" do
+     sistema. A rota e limpa antes de abrir pra um redesenho posterior
+     nao reabrir um formulario vazio por cima. */
+  if(ROTA.id === "nova" && !bloq) DEPOIS.push(function(){
+    if(location.hash.indexOf("/nova") > -1) location.hash = "#/tarefas";
+    tfFolha(null, {});
+  });
+
+  var h = '<div class="card-head" style="margin-bottom:0"><div>' +
+    '<div class="sec-title">Tarefas' + ajuda("tarefas") + '</div>' +
+    '<div class="sec-sub">O que fazer que não é o próximo passo de um negócio aberto. ' +
+    'Negócio aberto se cobra sozinho, na aba Hoje.</div></div>' +
+    '<div>' + (bloq
+      ? '<span class="tiny" style="color:var(--text3)">' + esc(bloq) + '</span>'
+      : '<button class="btn btn-primary" data-a="tfNova">+ Tarefa</button>') +
+    '</div></div>';
+
+  h += '<div class="pills" style="margin-bottom:12px">' +
+    '<button class="pill' + (TAREFAS_VISAO === "abertas" ? " on" : "") + '" data-a="tfVisao" data-v="abertas">Em aberto (' + abertas.length + ')</button>' +
+    '<button class="pill' + (TAREFAS_VISAO === "feitas" ? " on" : "") + '" data-a="tfVisao" data-v="feitas">Concluídas (' + feitas.length + ')</button>' +
+    '<button class="pill" data-a="tfTrocarDono">' + (tfSoMinhas() ? "Ver as do time" : "Ver só as minhas") + '</button>' +
+  '</div>';
+
+  if(TAREFAS_VISAO === "feitas") return h + tfListaFeitas(feitas);
+
+  if(!abertas.length){
+    return h + '<div class="empty"><div class="ei">✅</div>' +
+      '<div class="et">Nenhuma tarefa em aberto</div>' +
+      '<div class="ex">Tarefa é o que não tem negócio embaixo, ou o que sobrou de um negócio já fechado. ' +
+      'O que está em jogo agora aparece na aba Hoje, como próximo passo.</div>' +
+      (bloq ? '' : '<button class="btn" data-a="tfNova">Criar a primeira</button>') + '</div>';
+  }
+
+  var i, g, gav = {};
+  for(i=0;i<abertas.length;i++){
+    g = tfGaveta(abertas[i]);
+    (gav[g] = gav[g] || []).push(abertas[i]);
+  }
+  for(i=0;i<TF_GAVETAS.length;i++){
+    var k = TF_GAVETAS[i][0];
+    if(!gav[k] || !gav[k].length) continue;
+    h += '<div class="card" style="margin-bottom:11px">' +
+      '<div class="sec-title" style="border-color:' + TF_GAVETAS[i][2] + '">' +
+        esc(TF_GAVETAS[i][1]) + ' <span class="tiny muted">' + gav[k].length + '</span></div>';
+    for(var j=0;j<gav[k].length;j++) h += tfLinha(gav[k][j], bloq);
+    h += '</div>';
+  }
+  return h;
+};
+
+function tfListaFeitas(feitas){
+  if(!feitas.length){
+    return '<div class="empty"><div class="ei">🗂</div>' +
+      '<div class="et">Nada concluído ainda</div>' +
+      '<div class="ex">O que você marcar como feito fica guardado aqui, com a data e o nome de quem fechou.</div></div>';
+  }
+  var h = '<div class="card">';
+  for(var i=0;i<feitas.length && i<60;i++){
+    var t = feitas[i];
+    h += '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">' +
+      '<div style="flex:0 0 auto;color:var(--green);font-size:15px">✓</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div class="truncate" style="color:var(--text2)">' + esc(t.texto || rotTarefa(t.tipo)) + '</div>' +
+        '<div class="tiny muted">' + esc(rotTarefa(t.tipo)) +
+          (t.feitaEm ? ' · feita em ' + esc(dataBR(t.feitaEm)) : '') +
+          (t.feitaPor ? ' por ' + esc(t.feitaPor) : '') + '</div>' +
+      '</div></div>';
+  }
+  if(feitas.length > 60)
+    h += '<div class="tiny muted center" style="margin-top:9px">Mostrando as 60 mais recentes de ' + feitas.length + '.</div>';
+  return h + '</div>';
+}
+
+function tfLinha(t, bloq){
+  var temTel = !!(t.contatoTel && soDigito(t.contatoTel).length >= 10);
+  var atras = t.data && diasVencido(t.data) > 0;
+  return '<div style="padding:11px 0;border-bottom:1px solid var(--border)">' +
+    '<div style="display:flex;gap:10px;align-items:flex-start">' +
+      '<div style="flex:0 0 auto;font-size:15px;line-height:1.3">' + icTarefa(t.tipo) + '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-weight:600">' + esc(t.texto || rotTarefa(t.tipo)) + '</div>' +
+        '<div class="tiny" style="color:' + (atras ? "var(--red)" : "var(--text3)") + ';margin-top:2px">' +
+          esc(rotTarefa(t.tipo)) +
+          (t.data ? ' · ' + esc(dataBR(t.data)) + (atras ? ', venceu há ' + diasVencido(t.data) + ' dias' : '') : ' · sem data') +
+          (t.auto === false ? '' : ' · criada pelo sistema') +
+        '</div>' +
+        (t.negocioTitulo || t.contatoNome
+          ? '<div class="tiny muted truncate" style="margin-top:2px">' +
+            esc([t.contatoNome, t.negocioTitulo].filter(Boolean).join(" · ")) + '</div>' : '') +
+        (t.donoNome && !tfSoMinhas() ? '<div class="tiny muted">de ' + esc(t.donoNome) + '</div>' : '') +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap">' +
+      (temTel
+        ? '<button class="btn btn-sm" data-a="tfZap" data-id="' + esc(t.id) + '">💬 Zap</button>'
+        : '<button class="btn btn-sm" disabled>💬 Zap</button>') +
+      (bloq ? '<button class="btn btn-sm" disabled>✓ Feito</button>'
+            : '<button class="btn btn-sm" data-a="tfFeita" data-id="' + esc(t.id) + '">✓ Feito</button>') +
+      (bloq ? '' : '<button class="btn btn-sm btn-ghost" data-a="tfEditar" data-id="' + esc(t.id) + '">Editar</button>') +
+      (t.negocioId ? '<button class="btn btn-sm btn-ghost" data-a="ir" data-r="negocio/' + esc(t.negocioId) + '">Ver negócio</button>' : '') +
+    '</div>' +
+    (temTel ? '' : '<div class="tiny" style="color:var(--text3);margin-top:5px">Zap desligado: essa tarefa não tem telefone com DDD.</div>') +
+  '</div>';
+}
+
+/* ---------------------------------------------------------------------
+   CRIAR E EDITAR
+   Formulario curto de proposito: tipo, o que fazer, quando, de quem. O
+   resto (pessoa e negocio) e contexto, e vem preenchido quando a tarefa
+   nasce de dentro de uma ficha.
+   --------------------------------------------------------------------- */
+function tfFolha(t, pre){
+  pre = pre || {};
+  var novo = !t;
+  var tipos = tiposTarefaDeMao(), i, chips = "";
+  var tipoAtual = (t && t.tipo) || pre.tipo || "tarefa";
+  /* Tipo automatico nao aparece no seletor, mas se a pessoa editar uma
+     tarefa que o sistema criou o tipo dela tem que continuar valendo. */
+  var ehDeMao = false;
+  for(i=0;i<tipos.length;i++) if(tipos[i].k === tipoAtual) ehDeMao = true;
+  if(!ehDeMao) chips += '<button type="button" class="pill on" disabled>' +
+    esc(rotTarefa(tipoAtual)) + ' <span class="tiny muted">do sistema</span></button>';
+  for(i=0;i<tipos.length;i++)
+    chips += '<button type="button" class="pill' + (tipos[i].k === tipoAtual && ehDeMao ? " on" : "") + '"' +
+      ' data-a="tfTipo" data-k="' + esc(tipos[i].k) + '">' + tipos[i].ic + ' ' + esc(tipos[i].rot) + '</button>';
+
+  var donos = "";
+  for(i=0;i<ACESSOS.length;i++){
+    if(ACESSOS[i].ativo === false) continue;
+    var selD = (t && t.donoId === ACESSOS[i].id) || (!t && SESSAO && SESSAO.acessoId === ACESSOS[i].id);
+    donos += '<option value="' + esc(ACESSOS[i].id) + '"' + (selD ? ' selected' : '') + '>' + esc(ACESSOS[i].nome) + '</option>';
+  }
+
+  folha(novo ? "Tarefa nova" : "Editar tarefa",
+    '<form class="form" id="tfF" data-a="tfSalvar" data-id="' + esc(novo ? "" : t.id) + '">' +
+      '<input type="hidden" id="tfTipo" value="' + esc(tipoAtual) + '">' +
+      '<div class="fld"><label>Tipo</label><div class="pills" id="tfChips">' + chips + '</div></div>' +
+
+      '<div class="fld"><label>O que fazer <span class="req">*</span></label>' +
+        '<input class="inp" id="tfTexto" maxlength="160" autocomplete="off" ' +
+          'placeholder="Ligar pro Rogério sobre a renovação" value="' +
+          esc((t && t.texto) || pre.texto || "") + '"></div>' +
+
+      '<div class="grid2">' +
+        '<div class="fld"><label>Quando <span class="req">*</span></label>' +
+          '<input class="inp" type="date" id="tfData" value="' +
+            esc((t && t.data) || pre.data || somaDias(hojeISO(), 1)) + '"></div>' +
+        '<div class="fld"><label>De quem' + ajuda("dono_tarefa") + '</label>' +
+          (donos
+            ? '<select class="inp" id="tfDono">' + donos + '</select>'
+            : '<input class="inp" id="tfDonoNome" maxlength="60" value="' +
+              esc((t && t.donoNome) || (SESSAO && SESSAO.nome) || "") + '">') +
+        '</div>' +
+      '</div>' +
+
+      (pre.contatoNome || (t && t.contatoNome)
+        ? '<div class="fld"><label>Com quem</label>' +
+          '<div class="h2" style="text-transform:none">' + esc(pre.contatoNome || t.contatoNome) + '</div></div>'
+        : '') +
+      (pre.negocioTitulo || (t && t.negocioTitulo)
+        ? '<div class="fld"><label>Negócio</label>' +
+          '<div class="small muted2">' + esc(pre.negocioTitulo || t.negocioTitulo) + '</div></div>'
+        : '') +
+
+      '<div id="tfErr" class="tiny" style="color:var(--red)"></div>' +
+    '</form>',
+    '<button class="btn btn-ghost" data-a="fecharFolha">Cancelar</button>' +
+    '<button class="btn btn-primary" type="submit" form="tfF">' + (novo ? "Criar" : "Salvar") + '</button>');
+
+  TF_PRE = pre;
+}
+var TF_PRE = {};
+
+ACOES.tfNova = function(){ tfFolha(null, {}); };
+ACOES.tfTipo = function(el){
+  var k = el.getAttribute('data-k');
+  var h = document.getElementById('tfTipo');
+  if(h) h.value = k;
+  var w = document.getElementById('tfChips');
+  if(!w) return;
+  var bs = w.querySelectorAll("button");
+  for(var i=0;i<bs.length;i++)
+    bs[i].className = "pill" + (bs[i].getAttribute("data-k") === k ? " on" : "");
+};
+ACOES.tfEditar = function(el){
+  var t = achar("tarefas", el.getAttribute('data-id'));
+  if(t) tfFolha(t, {});
+};
+ACOES.tfVisao = function(el){ TAREFAS_VISAO = el.getAttribute('data-v') || "abertas"; redesenhar(); };
+ACOES.tfTrocarDono = function(){
+  TAREFAS_MINHAS = !tfSoMinhas();
+  redesenhar();
+  toast(TAREFAS_MINHAS ? "Mostrando só as suas" : "Mostrando as do time todo", "ok");
+};
+
+ACOES.tfSalvar = function(f){
+  var id = f.getAttribute('data-id') || "";
+  var err = document.getElementById('tfErr');
+  function ruim(m){ if(err) err.textContent = m; else toast(m, "bad"); }
+
+  var bloq = motivoBloqueio("crm_tarefas");
+  if(bloq){ ruim(bloq); return; }
+
+  var texto = String((document.getElementById('tfTexto')||{}).value || "").trim().slice(0,160);
+  var data  = String((document.getElementById('tfData')||{}).value || "").trim();
+  var tipo  = String((document.getElementById('tfTipo')||{}).value || "tarefa");
+  if(texto.length < 3){ ruim("Escreva o que precisa ser feito."); return; }
+  /* Data obrigatoria. Tarefa sem data nao aparece na fila do Hoje e vira
+     uma lista paralela que ninguem abre, que e como tarefa morre em todo
+     CRM. A gaveta "sem data" existe pro dado antigo, nao pra escolha. */
+  if(!data){ ruim("Escolha uma data. Sem data a tarefa não aparece na fila de ninguém."); return; }
+
+  var sel = document.getElementById('tfDono');
+  var donoId = sel ? sel.value : "";
+  var donoNome = "";
+  if(sel){ for(var i=0;i<ACESSOS.length;i++) if(ACESSOS[i].id === donoId) donoNome = ACESSOS[i].nome; }
+  else donoNome = String((document.getElementById('tfDonoNome')||{}).value || "").trim().slice(0,60);
+  if(!donoNome) donoNome = (SESSAO && SESSAO.nome) || "";
+
+  var velha = id ? achar("tarefas", id) : null;
+  fecharFolha();
+
+  if(velha){
+    var antes = { texto:velha.texto, data:velha.data, tipo:velha.tipo,
+                  donoId:velha.donoId || "", donoNome:velha.donoNome || "" };
+    gravar("crm_tarefas", id, { texto:texto, data:data, tipo:tipo, donoId:donoId, donoNome:donoNome })
+      .then(function(){ comDesfazer("Tarefa salva", "crm_tarefas", id, antes); });
+    return;
+  }
+
+  var pre = TF_PRE || {};
+  ngCriarTarefa({
+    tipo:tipo, texto:texto, data:data,
+    donoId:donoId, donoNome:donoNome, auto:false,
+    contatoId:pre.contatoId || "", contatoNome:pre.contatoNome || "", contatoTel:pre.contatoTel || "",
+    negocioId:pre.negocioId || "", negocioTitulo:pre.negocioTitulo || ""
+  }).then(function(){ toast("Tarefa criada", "ok"); redesenhar(); });
+};
+
+/* Concluir agora GRAVA QUEM E QUANDO. Sem isso a lista de concluidas e
+   uma lista de frases sem dono e sem data, que nao responde nada. */
+ACOES.tfFeita = function(el){
+  var id = el.getAttribute('data-id'), t = achar("tarefas", id);
+  if(!t) return;
+  var bloq = motivoBloqueio("crm_tarefas");
+  if(bloq){ toast(bloq, "bad"); return; }
+  gravar("crm_tarefas", id, {
+    feita:true, feitaEm:hojeISO(), feitaPor:(SESSAO && SESSAO.nome) || ""
+  }).then(function(){
+    redesenhar();
+    comDesfazer("Tarefa feita", "crm_tarefas", id, { feita:false, feitaEm:"", feitaPor:"" });
+  });
+};
+ACOES.tfZap = function(el){
+  var t = achar("tarefas", el.getAttribute('data-id'));
+  if(!t) return;
+  var m = (t.tipo === "retorno" || t.tipo === "avisar_indicador") ? "m6"
+        : (t.tipo === "retomar") ? "m4"
+        : (t.tipo === "renovacao") ? "" : "";
+  abrirMensagem({ tel:t.contatoTel || "", nome:t.contatoNome || "",
+                  negocioId:t.negocioId || "", contatoId:t.contatoId || "", modelo:m });
+};
+
+/* Atalhos que nascem onde a falta aparece. */
+ACOES.tfDoNegocio = function(el){
+  var n = achar("negocios", el.getAttribute('data-id'));
+  if(!n) return;
+  var c = n.contatoId ? contatoPorId(n.contatoId) : null;
+  tfFolha(null, {
+    negocioId:n.id, negocioTitulo:n.titulo || n.empresa || "",
+    contatoId:n.contatoId || "", contatoNome:n.contatoNome || "",
+    contatoTel:(c && c.tel) || n.contatoTel || "",
+    texto:""
+  });
+};
+ACOES.tfDaPessoa = function(el){
+  var c = contatoPorId(el.getAttribute('data-id'));
+  if(!c) return;
+  tfFolha(null, { contatoId:c.id, contatoNome:c.nome, contatoTel:c.tel || "" });
 };
 
 /* ============ PARTIDA ============ */
