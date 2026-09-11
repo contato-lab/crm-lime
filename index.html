@@ -602,6 +602,17 @@ table.tb td.r,table.tb th.r{text-align:right;font-variant-numeric:tabular-nums}
   .tu-fig{overflow-x:auto}
   .tu-fig svg{min-width:560px}
 }
+
+/* ---------- CONFIGURACOES ----------
+   Cartoes de tamanho igual, com o botao sempre na mesma altura: e o
+   alinhamento dos botoes que faz a grade parecer uma lista de opcoes e
+   nao tres blocos soltos. O margin-top:auto no rodape do card é o que
+   segura isso quando os textos tem tamanhos diferentes. */
+.cfg-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:13px;margin-bottom:13px}
+.cfg-item{display:flex;flex-direction:column;gap:7px}
+.cfg-ic{font-size:23px;line-height:1}
+.cfg-txt{margin:2px 0 0;font-size:13.5px;color:var(--text3);line-height:1.55}
+.cfg-ac{display:flex;gap:7px;flex-wrap:wrap;margin-top:auto;padding-top:9px}
 </style>
 </head>
 <body>
@@ -977,7 +988,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.10";
+var VERSAO = "2026-09-11.11";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1814,6 +1825,9 @@ function motivoBloqueio(colecao, doc){
   if(colecao === "crm_config")  return podeMexerMeta() ? null : "Seu acesso é só de leitura.";
   if(colecao === "crm_acessos") return ehAdmin() ? null : "Só o Admin mexe em acessos.";
   if(colecao === "crm_tipos")   return ehAdmin() ? null : "Só o Admin mexe nos funis.";
+  /* Modelo de mensagem NAO e coisa de Admin: quem escreve bem o texto de
+     cobranca e quem cobra todo dia. */
+  if(colecao === "crm_modelos") return podeRegistrarTudo() ? null : "Seu acesso é só de leitura.";
   return "Coleção fora do CRM.";
 }
 
@@ -2306,8 +2320,11 @@ var ABAS = [
   { k:"negocios", rot:"Negócios", ic:"💼" },
   { k:"pessoas",  rot:"Pessoas",  ic:"👥" },
   { k:"painel",   rot:"Painel",   ic:"📊" },
-  { k:"funis",    rot:"Funis",    ic:"🧭", soAdmin:true },
-  { k:"acessos",  rot:"Acessos",  ic:"🔑", soAdmin:true },
+  /* Funis, Modelos e Acessos saem do menu e viram cards de
+     Configuracoes. Oito abas na lateral e uma lista, nao um menu: a
+     pessoa para de ler e passa a decorar posicao, e o que entrar depois
+     nasce invisivel. */
+  { k:"config",   rot:"Configurações", ic:"⚙" },
   // Fica por ultimo de proposito: e a aba que se le uma vez, nao todo dia.
   { k:"tutorial", rot:"Tutorial", ic:"📖" }
 ];
@@ -2316,6 +2333,7 @@ function redesenhar(){
   if(!SESSAO){ pintarGate(); return; }
   ROTA = lerRota();
   if((ROTA.tela === "acessos" || ROTA.tela === "funis") && !ehAdmin()) ROTA.tela = (PERM && PERM.home) || "hoje";
+  if(ROTA.tela === "modelos" && motivoBloqueio("crm_modelos") && ROTA.id === "novo") ROTA.id = "";
   if(!TELAS[ROTA.tela]) ROTA.tela = (PERM && PERM.home) || "hoje";
 
   DEPOIS = [];
@@ -2709,13 +2727,14 @@ function boot(){
         document.getElementById('app').hidden = false;
         pintarCabecalho();
         carregarCache();
-        aplicarTiposDoCache();
+        aplicarTiposDoCache(); aplicarModelosDoCache();
         if(!location.hash) location.hash = "#/" + ((PERM && PERM.home) || "hoje");
         redesenhar();
         // Revalida contra a lista de acessos. Lista VAZIA não derruba
         // ninguém: mantém a sessão e avisa. Derrubar o time por causa de
         // um erro de leitura é pior que o risco que evita.
         carregarTipos().then(function(tp){ if(tp.length) redesenhar(); });
+        carregarModelos();
         carregarAcessos().then(function(acc){
           if(!acc.length){
             if(!SESSAO.recuperacao) avisoBarra("Não consegui ler a lista de acessos agora. Você continua dentro com o perfil da última vez.");
@@ -3143,6 +3162,28 @@ var AJUDA = {
        "com o histórico partido no meio.\n\n" +
        "Com a empresa preenchida, a ficha de qualquer pessoa de lá mostra as outras pessoas " +
        "e todos os negócios daquela conta."
+  },
+
+  config: {
+    t: "Configurações",
+    x: "O que dá pra criar e mudar no sistema sem precisar de programador.\n\n" +
+       "Hoje são três: os funis (tipos de negócio e etapas), os modelos de mensagem, e os acessos.\n\n" +
+       "Você não precisa vir aqui pra criar. Tem um botão + no próprio lugar onde a falta aparece: " +
+       "na escolha de modelo, dentro da folha de mensagem, e ao lado das abas do Funil."
+  },
+  modelos: {
+    t: "Modelos de mensagem",
+    x: "Texto pronto com lacunas entre chaves, tipo {nome} e {empresa}.\n\n" +
+       "O sistema preenche sozinho tudo que ele já sabe daquele negócio, e pergunta o resto " +
+       "na hora de mandar. Assim a cobrança sai igual toda vez, sem você reescrever.\n\n" +
+       "Os modelos que vêm prontos podem ser corrigidos e desligados, mas não apagados: o texto " +
+       "deles já foi usado em conversa de verdade."
+  },
+  modelo_quando: {
+    t: "Quando o modelo aparece",
+    x: "A folha de mensagem só mostra os modelos que fazem sentido naquela conversa.\n\n" +
+       "Mostrar os dez sempre transforma a escolha num formulário, e o vendedor com pressa " +
+       "para de usar modelo nenhum. Se está em dúvida, deixe em qualquer conversa."
   },
 
   /* ---------- acessos ---------- */
@@ -4424,6 +4465,11 @@ function fnAbasDeFunil(k){
     h += '<button class="pill' + (k === ativos[i].k ? " on" : "") + '" data-a="funilTrocar" data-k="' +
          esc(ativos[i].k) + '">' + esc(ativos[i].rot) + '</button>';
   }
+  /* O "+" fica ao lado das abas de propósito: a falta de um funil que
+     sirva aparece aqui, olhando os que existem, e nao em Configuracoes. */
+  if(ehAdmin())
+    h += '<button class="pill" data-a="ir" data-r="funis/novo" ' +
+         'title="Criar um funil novo">+</button>';
   return h;
 }
 function fnFaixaTotais(k){
@@ -11469,8 +11515,14 @@ function abrirMensagem(ctx){
   if(nome) ok.contato = true;
 
   var pills = '<button type="button" class="pill on" data-a="msgModelo" data-k="">Sem modelo</button>';
-  for(var i=0;i<MODELOS.length;i++){
-    var m = MODELOS[i];
+  /* Os dois atalhos ficam no fim da fila, depois dos modelos: na frente
+     eles competiriam com o que a pessoa veio buscar. */
+  var atalhos = motivoBloqueio("crm_modelos") ? ""
+    : '<button type="button" class="pill" data-a="mdAbrirNovo">+ Novo modelo</button>' +
+      '<button type="button" class="pill" data-a="mdAbrir">Editar os modelos</button>';
+  var ativos = modelosAtivos();
+  for(var i=0;i<ativos.length;i++){
+    var m = ativos[i];
     if(!ok[m.quando]) continue;
     pills += '<button type="button" class="pill" data-a="msgModelo" data-k="' + m.k + '">' +
              esc(m.rot) + '</button>';
@@ -11479,7 +11531,8 @@ function abrirMensagem(ctx){
   var linkCru = linkWhats(tel, "");
   var corpo =
     '<div class="form">' +
-      '<div class="fld"><label>Modelo</label><div class="pills" id="msgPills">' + pills + '</div></div>' +
+      '<div class="fld"><label>Modelo</label>' +
+        '<div class="pills" id="msgPills">' + pills + atalhos + '</div></div>' +
       '<div class="fld">' +
         '<label>Prévia, dá pra editar antes de mandar</label>' +
         '<textarea class="inp" id="msgTexto" rows="7" maxlength="1200" ' +
@@ -12672,20 +12725,29 @@ TELAS.tutorial = function(){
     '<p class="tiny" style="color:var(--text2)">Média só aparece com 3 casos ou mais. Com menos que isso, ' +
     'o CRM lista os valores um a um, porque média de dois números engana.</p>');
 
-  h += tuPasso(10, "Acessos: quem entra e com que poder",
+  h += tuPasso(10, "Configurações: moldar o CRM ao jeito da casa",
+    '<p>A aba <b>Configurações</b> junta tudo que dá pra criar e mudar sem programador: ' +
+    'os <b>funis</b> (os tipos de negócio e as etapas de cada um), os <b>modelos de mensagem</b> ' +
+    '(textos prontos com lacunas que o sistema preenche) e os <b>acessos</b>.</p>' +
+    '<p>Você não precisa passar por lá pra criar. Tem um <b>+</b> no próprio lugar onde a falta aparece: ' +
+    'na escolha de modelo, dentro da folha de mensagem, e ao lado das abas do Funil.</p>' +
+    '<p class="tiny" style="color:var(--text2)">Nada disso se apaga de verdade, só desliga. ' +
+    'Um funil ou um modelo que sumisse deixaria o histórico apontando pra coisa que não existe mais.</p>');
+
+  h += tuPasso(11, "Acessos: quem entra e com que poder",
     '<p>Só quem é Admin vê Acessos e Funis. <b>Admin</b> mexe em tudo, cria gente e cria funis. ' +
     '<b>SDR</b> e <b>Closer</b> operam os negócios com exatamente o mesmo poder, e a diferença ' +
     'entre os dois é o papel, não a permissão. <b>Gestor</b> vê tudo mas só registra observação.</p>' +
     '<p>Leitura é o perfil pra quem quer acompanhar sem risco de mexer sem querer. ' +
     'Quem está em Leitura vê os botões desabilitados com o motivo escrito, em vez de clicar e dar erro.</p>');
 
-  h += tuPasso(11, "A regra de ouro do que escrever aqui",
+  h += tuPasso(12, "A regra de ouro do que escrever aqui",
     '<p>Esta página está aberta pra quem tiver o endereço. Então vale uma régua simples: ' +
     '<b>se você não mandaria num grupo de WhatsApp com 50 pessoas, não escreve aqui.</b></p>' +
     '<p>Nada de CPF, CNPJ, dado bancário, cláusula de contrato ou comentário pessoal sobre alguém. ' +
     'Nome da empresa, valor, etapa e o que foi conversado: isso sim.</p>');
 
-  h += tuPasso(12, "Sem internet, continua funcionando",
+  h += tuPasso(13, "Sem internet, continua funcionando",
     '<p>O CRM guarda o que você fez no próprio aparelho e manda pro servidor quando a conexão voltar. ' +
     'O indicador no topo mostra o estado: sincronizado, gravando, ou pendente.</p>' +
     '<p class="tiny" style="color:var(--text2)">Só não feche o aplicativo com pendência e troque de celular no mesmo minuto. ' +
@@ -12765,6 +12827,10 @@ TELAS.funis = function(){
       '<div class="ex">Os funis decidem as etapas que todo mundo vê, então só quem administra o sistema mexe neles.</div>' +
       '<button class="btn" data-a="ir" data-r="hoje">Voltar pro Hoje</button></div>';
   }
+
+  /* #/funis/novo cai direto no formulario, que e pra onde o "+" de
+     Configuracoes e o "+" da tela de Funil apontam. */
+  if(ROTA.id === "novo") DEPOIS.push(function(){ fnFolha(null); });
 
   var h = '<div class="card-head" style="margin-bottom:0"><div>' +
     '<div class="sec-title">Funis' + ajuda("funis") + '</div>' +
@@ -13022,6 +13088,414 @@ function fnGuardarLocal(doc){
   guardar("tipos", TIPOS_DOCS);
   aplicarTipos(TIPOS_DOCS);
 }
+
+/* ============ 14-modelos ============ */
+/* =====================================================================
+   CRM LIME - MODELOS DE MENSAGEM
+
+   Os textos prontos da folha de mensagem. Ate aqui eles so existiam no
+   codigo, e a casa nao tinha como criar um nem corrigir uma palavra sem
+   publicar o sistema de novo.
+
+   COMO CONVIVEM OS DOIS
+   Os modelos escritos no codigo sao a SEMENTE. Sao eles que aparecem no
+   primeiro dia, sem rede e sem banco. O que a casa escreve fica em
+   crm_modelos e entra por cima: da pra corrigir o texto de um modelo da
+   casa, renomear, desligar, e criar quantos quiser.
+
+   POR QUE NAO SE APAGA UM MODELO DA CASA
+   O texto dele ja foi usado em conversa. Apagar deixaria o historico
+   apontando pra um modelo que nao existe mais, e a pessoa que gostava
+   dele descobriria pela ausencia. Desligar tira da escolha e pronto.
+
+   QUEM PODE MEXER
+   Quem registra atividade, ou seja o time comercial. Nao e coisa de
+   Admin: quem escreve bem o texto de cobranca e quem cobra todo dia, e
+   um perfil no meio do caminho faria o texto bom morrer no WhatsApp de
+   alguem.
+   ===================================================================== */
+
+var MODELOS_SEMENTE = JSON.parse(JSON.stringify(MODELOS));
+var MODELOS_DOCS = [];
+
+/* As variaveis que o sistema sabe preencher. Escrito aqui porque o
+   editor PRECISA mostrar a lista: modelo com {variavel} inventada vira
+   campo pedindo preenchimento na hora de mandar, e quem escreveu nunca
+   descobre que errou. */
+var MODELO_VARS = [
+  ["nome",        "primeiro nome de quem recebe"],
+  ["vendedor",    "seu nome"],
+  ["empresa",     "empresa do negócio"],
+  ["indicador",   "quem indicou"],
+  ["mrr",         "fee mensal, já em reais"],
+  ["meses",       "meses de contrato"],
+  ["valor",       "valor da cota, já em reais"],
+  ["cota",        "nome da cota"],
+  ["entregaveis", "o que entra na cota"],
+  ["evento",      "edição do festival"],
+  ["dataEvento",  "data do evento"],
+  ["corte",       "corte comercial da edição"],
+  ["diaRetorno",  "data do próximo passo"],
+  ["hora",        "hora do próximo passo"],
+  ["assunto",     "você preenche na hora"],
+  ["gancho",      "você preenche na hora"]
+];
+
+var MODELO_QUANDO = [
+  ["sempre",     "Em qualquer conversa"],
+  ["agencia",    "Só em negócio de mensalidade"],
+  ["patrocinio", "Só em negócio de valor único"],
+  ["indicacao",  "Só quando o negócio veio de indicação"],
+  ["contato",    "Só quando a conversa tem uma pessoa no nome"]
+];
+
+function aplicarModelos(docs){
+  MODELOS = JSON.parse(JSON.stringify(MODELOS_SEMENTE));
+  var porK = {}, i;
+  for(i=0;i<MODELOS.length;i++){ MODELOS[i].daCasa = true; porK[MODELOS[i].k] = MODELOS[i]; }
+
+  for(i=0;i<(docs||[]).length;i++){
+    var d = docs[i];
+    if(!d || !d.k) continue;
+    var velho = porK[d.k];
+    if(velho){
+      // Modelo da casa: da pra corrigir e desligar, nunca sumir.
+      if(d.rot) velho.rot = d.rot;
+      if(d.txt) velho.txt = d.txt;
+      if(d.quando) velho.quando = d.quando;
+      velho.ativo = d.ativo !== false;
+    } else {
+      if(!d.txt) continue;                  // modelo sem texto nao serve
+      var novo = { k:d.k, rot:d.rot || d.k, quando:d.quando || "sempre",
+                   txt:d.txt, daCasa:false, ativo:d.ativo !== false,
+                   ordem: typeof d.ordem === "number" ? d.ordem : 99 };
+      MODELOS.push(novo);
+      porK[d.k] = novo;
+    }
+  }
+  return MODELOS;
+}
+function modeloPorK(k){
+  for(var i=0;i<MODELOS.length;i++) if(MODELOS[i].k === k) return MODELOS[i];
+  return null;
+}
+function modelosAtivos(){
+  var r = [];
+  for(var i=0;i<MODELOS.length;i++) if(MODELOS[i].ativo !== false) r.push(MODELOS[i]);
+  return r;
+}
+function carregarModelos(){
+  if(!FB_ON || !AUTH_OK) return Promise.resolve([]);
+  return db.collection("crm_modelos").get().then(function(snap){
+    SYNC.lidas += Math.max(snap.size, 1);
+    var r = [];
+    snap.forEach(function(d){ var o = d.data(); o.id = d.id; if(!o.k) o.k = d.id; r.push(o); });
+    MODELOS_DOCS = r;
+    guardar("modelos", r);
+    aplicarModelos(r);
+    return r;
+  }).catch(function(e){ explicarErro(e); return []; });
+}
+function aplicarModelosDoCache(){
+  var c = recuperar("modelos", null);
+  if(c && c.length){ MODELOS_DOCS = c; aplicarModelos(c); }
+}
+function mdGuardarLocal(doc){
+  var achou = false, i;
+  for(i=0;i<MODELOS_DOCS.length;i++) if(MODELOS_DOCS[i].k === doc.k){ MODELOS_DOCS[i] = doc; achou = true; }
+  if(!achou) MODELOS_DOCS.push(doc);
+  guardar("modelos", MODELOS_DOCS);
+  aplicarModelos(MODELOS_DOCS);
+}
+
+/* Chave nova a partir do rotulo, sem colidir com as da casa. */
+function mdChave(rot, jaUsadas){
+  var base = chave(rot).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 20);
+  if(!base) base = "modelo";
+  var k = "md_" + base, i = 2;
+  while(jaUsadas && jaUsadas.indexOf(k) > -1){ k = "md_" + base + "_" + i; i++; }
+  return k;
+}
+/* Variaveis escritas no texto que o sistema NAO conhece. E o unico erro
+   de modelo que nao aparece na hora de escrever, so na hora de mandar. */
+function mdVarsDesconhecidas(txt){
+  var achadas = String(txt || "").match(/\{[a-zA-Z]+\}/g) || [];
+  var conhecidas = [], r = [], i, j;
+  for(i=0;i<MODELO_VARS.length;i++) conhecidas.push(MODELO_VARS[i][0]);
+  for(i=0;i<achadas.length;i++){
+    var v = achadas[i].slice(1, -1);
+    if(conhecidas.indexOf(v) > -1) continue;
+    if(r.indexOf(v) < 0) r.push(v);
+  }
+  return r;
+}
+
+/* ---------------------------------------------------------------------
+   A TELA
+
+   Area propria, e nao uma folha dentro da folha de mensagem. Escrever um
+   modelo bom leva tempo: exige ler os outros, comparar, testar uma
+   palavra. Isso nao cabe numa folha aberta no meio de uma conversa com
+   cliente, que e onde a pessoa estava quando sentiu falta.
+
+   O atalho continua existindo onde a falta aparece: a folha de mensagem
+   tem um "+ Novo modelo" que abre esta tela ja no formulario.
+   --------------------------------------------------------------------- */
+TELAS.modelos = function(){
+  var podeMexer = podeRegistrarTudo();
+  var bloq = motivoBloqueio("crm_modelos");
+
+  /* #/modelos/novo cai direto no formulario. E o destino dos atalhos "+"
+     espalhados pelo sistema: dois cliques viram um. */
+  if(ROTA.id === "novo" && podeMexer) DEPOIS.push(function(){ mdFolhaEditar(null); });
+
+  var h = '<div class="card-head" style="margin-bottom:0"><div>' +
+    '<div class="sec-title">Modelos de mensagem' + ajuda("modelos") + '</div>' +
+    '<div class="sec-sub">Texto pronto com lacunas. O sistema preenche o que já sabe ' +
+    '(nome, empresa, valor) e pergunta o resto na hora de mandar.</div></div>' +
+    '<div>' + (podeMexer
+      ? '<button class="btn btn-primary" data-a="mdNovo">+ Modelo</button>'
+      : '<span class="tiny" style="color:var(--text3)">' + esc(bloq || "Seu acesso é só de leitura.") + '</span>') +
+    '</div></div>';
+
+  var i;
+  for(i=0;i<MODELOS.length;i++){
+    var m = MODELOS[i];
+    var off = m.ativo === false;
+    h += '<div class="card" style="margin-bottom:9px' + (off ? ';opacity:.6' : '') + '">' +
+      '<div class="card-head" style="margin-bottom:6px"><div style="min-width:0">' +
+        '<div style="font-weight:600;color:var(--text)">' + esc(m.rot) +
+          (off ? ' <span class="tag">desligado</span>' : '') +
+          (m.daCasa ? ' <span class="tag tag-lime">da casa</span>' : '') + '</div>' +
+        '<div class="tiny muted">' + esc(mdRotQuando(m.quando)) + '</div>' +
+      '</div><div class="pills">' +
+        (podeMexer
+          ? '<button type="button" class="btn btn-sm" data-a="mdEditar" data-k="' + esc(m.k) + '">Editar</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" data-a="mdLigar" data-k="' + esc(m.k) + '">' +
+            (off ? "Ligar" : "Desligar") + '</button>'
+          : '') +
+      '</div></div>' +
+      '<div class="tiny" style="color:var(--text3);white-space:pre-wrap;line-height:1.55">' +
+        esc(m.txt.length > 220 ? m.txt.slice(0, 220) + "…" : m.txt) + '</div>' +
+    '</div>';
+  }
+  h += '<div class="card"><div class="tiny muted">' +
+    'Modelo da casa não se apaga, só desliga. O texto dele já foi usado em conversa, e sumir com ele ' +
+    'deixaria o histórico apontando pra um modelo que não existe mais.</div></div>';
+  return h;
+};
+/* Atalho vindo de qualquer lugar do sistema. */
+ACOES.mdAbrir = function(){ fecharFolha(); ir("modelos"); };
+ACOES.mdAbrirNovo = function(){ fecharFolha(); ir("modelos/novo"); };
+function mdRotQuando(k){
+  for(var i=0;i<MODELO_QUANDO.length;i++) if(MODELO_QUANDO[i][0] === k) return MODELO_QUANDO[i][1];
+  return "Em qualquer conversa";
+}
+
+function mdFolhaEditar(m){
+  var novo = !m;
+  var vars = "", i;
+  for(i=0;i<MODELO_VARS.length;i++)
+    vars += '<button type="button" class="pill" data-a="mdVar" data-v="' + esc(MODELO_VARS[i][0]) + '">' +
+            '{' + esc(MODELO_VARS[i][0]) + '} <span class="tiny muted">' + esc(MODELO_VARS[i][1]) + '</span></button>';
+
+  var ops = "";
+  for(i=0;i<MODELO_QUANDO.length;i++)
+    ops += '<option value="' + esc(MODELO_QUANDO[i][0]) + '"' +
+           (!novo && m.quando === MODELO_QUANDO[i][0] ? ' selected' : '') + '>' +
+           esc(MODELO_QUANDO[i][1]) + '</option>';
+
+  folha(novo ? "Modelo novo" : "Editar modelo",
+    '<form class="form" id="mdF" data-a="mdSalvar" data-k="' + esc(novo ? "" : m.k) + '">' +
+      '<div class="fld"><label>Nome do modelo, o que aparece no botão</label>' +
+        '<input class="inp" id="mdRot" maxlength="40" autocomplete="off" ' +
+          'placeholder="Cobrança depois da reunião" value="' + esc(novo ? "" : m.rot) + '"></div>' +
+
+      '<div class="fld"><label>Quando esse modelo aparece' + ajuda("modelo_quando") + '</label>' +
+        '<select class="inp" id="mdQuando">' + ops + '</select>' +
+        '<div class="hint">A folha de mensagem só mostra os modelos que fazem sentido naquela conversa. ' +
+        'Mostrar todos sempre transforma a escolha num formulário, e aí ninguém usa nenhum.</div></div>' +
+
+      '<div class="fld"><label>O texto</label>' +
+        '<textarea class="inp" id="mdTxt" rows="8" maxlength="1200" ' +
+          'placeholder="Oi {nome}, aqui é {vendedor} da Agência Lime...">' +
+          esc(novo ? "" : m.txt) + '</textarea>' +
+        '<div class="hint">Clique numa lacuna abaixo pra colar no fim do texto.</div></div>' +
+
+      '<div class="fld"><label>Lacunas que o sistema preenche</label>' +
+        '<div class="pills">' + vars + '</div></div>' +
+
+      '<div id="mdErr" class="tiny" style="color:var(--red)"></div>' +
+    '</form>',
+    '<button class="btn btn-ghost" data-a="fecharFolha">Cancelar</button>' +
+    '<button class="btn btn-primary" type="submit" form="mdF">' + (novo ? "Criar" : "Salvar") + '</button>');
+}
+ACOES.mdNovo = function(){ mdFolhaEditar(null); };
+ACOES.mdEditar = function(el){
+  var m = modeloPorK(el.getAttribute('data-k'));
+  if(m) mdFolhaEditar(m);
+};
+ACOES.mdVar = function(el){
+  var ta = document.getElementById('mdTxt');
+  if(!ta) return;
+  var v = "{" + el.getAttribute('data-v') + "}";
+  ta.value = (ta.value || "") + (ta.value && !/\s$/.test(ta.value) ? " " : "") + v;
+  try{ ta.focus(); }catch(e){}
+};
+
+ACOES.mdSalvar = function(f){
+  var k = f.getAttribute('data-k') || "";
+  var err = document.getElementById('mdErr');
+  function ruim(m){ if(err) err.textContent = m; else toast(m, "bad"); }
+
+  var bloq = motivoBloqueio("crm_modelos");
+  if(bloq){ ruim(bloq); return; }
+
+  var rot = String((document.getElementById('mdRot')||{}).value || "").trim().slice(0,40);
+  var txt = String((document.getElementById('mdTxt')||{}).value || "").trim().slice(0,1200);
+  var quando = String((document.getElementById('mdQuando')||{}).value || "sempre");
+  if(rot.length < 2){ ruim("Dê um nome pro modelo."); return; }
+  if(txt.length < 10){ ruim("Escreva o texto do modelo."); return; }
+
+  var estranhas = mdVarsDesconhecidas(txt);
+  if(estranhas.length){
+    ruim("O sistema não conhece " + estranhas.map(function(v){ return "{" + v + "}"; }).join(", ") +
+         ". Use uma das lacunas da lista, ou escreva sem as chaves.");
+    return;
+  }
+
+  var velho = k ? modeloPorK(k) : null;
+  if(!k){
+    var usadas = [];
+    for(var i=0;i<MODELOS.length;i++) usadas.push(MODELOS[i].k);
+    k = mdChave(rot, usadas);
+  }
+  var doc = { k:k, rot:rot, quando:quando, txt:txt,
+              ativo: velho ? (velho.ativo !== false) : true,
+              ordem: velho && typeof velho.ordem === "number" ? velho.ordem : MODELOS.length };
+
+  fecharFolha();
+  gravar("crm_modelos", k, doc).then(function(){
+    mdGuardarLocal(doc);
+    toast(velho ? "Modelo salvo" : "Modelo criado", "ok");
+    ir("modelos");
+  });
+};
+
+ACOES.mdLigar = function(el){
+  var k = el.getAttribute('data-k'), m = modeloPorK(k);
+  if(!m) return;
+  var ligando = m.ativo === false;
+  /* Modelo da casa pode nunca ter ido pro banco. O documento nasce aqui,
+     com o texto da semente junto: gravar so o ativo:false deixaria um
+     documento pela metade, e quem lesse crm_modelos direto no banco
+     acharia um modelo sem texto nenhum. */
+  var doc = { k:k, rot:m.rot, quando:m.quando, txt:m.txt, ativo:ligando,
+              ordem: typeof m.ordem === "number" ? m.ordem : 99 };
+  gravar("crm_modelos", k, doc).then(function(){
+    mdGuardarLocal(doc);
+    toast(ligando ? "Modelo ligado" : "Modelo desligado", "ok");
+    redesenhar();
+  });
+};
+
+/* ============ 15-config ============ */
+/* =====================================================================
+   CRM LIME - CONFIGURACOES
+
+   O lugar onde a casa molda o proprio CRM: os funis, os modelos de
+   mensagem, e o que vier depois.
+
+   POR QUE UMA AREA SO, E NAO CADA COISA NO SEU CANTO
+   Quem quer criar algo nao sabe o nome interno da coisa. Sabe que quer
+   "mudar as etapas" ou "escrever um texto pronto". Uma porta so, com as
+   duas frases escritas, responde isso sem a pessoa caçar aba por aba.
+
+   E POR QUE MESMO ASSIM EXISTE O "+" ESPALHADO
+   Porque a falta nao aparece aqui. Ela aparece na hora de mandar a
+   mensagem e nao achar o texto certo, ou na hora de cadastrar e ver que
+   nenhum funil serve. O "+" daquele momento leva direto pro formulario,
+   e essa tela fica pra quem chegou pela porta da frente.
+
+   COMO CRESCER ESTA TELA: um item novo em CONFIG_ITENS. Se ele precisar
+   de permissao, e a funcao "pode" que decide, e o motivo aparece escrito
+   no card em vez do botao sumir sem explicacao.
+   ===================================================================== */
+
+var CONFIG_ITENS = [
+  { k:"funis", ic:"🧭", rot:"Funis",
+    sub:"Os tipos de negócio e as etapas de cada um",
+    txt:"Cada tipo de negócio tem o funil dele, com etapas, chances e prazos próprios. " +
+        "Agência e patrocínio vêm prontos; consultoria, licenciamento ou o que a casa vender " +
+        "amanhã, você cria aqui.",
+    novo:"funis/novo", ver:"funis",
+    pode:function(){ return ehAdmin() ? null : "Só o Admin mexe nos funis, porque eles mudam a tela de todo mundo."; },
+    conta:function(){
+      var n = tiposAtivos().length;
+      return n + (n === 1 ? " funil ativo" : " funis ativos");
+    } },
+
+  { k:"modelos", ic:"💬", rot:"Modelos de mensagem",
+    sub:"Os textos prontos do WhatsApp e do e-mail",
+    txt:"Texto com lacunas que o sistema preenche sozinho: nome, empresa, valor, data. " +
+        "Serve pra não escrever a mesma cobrança pela quinquagésima vez, e pra o time inteiro " +
+        "falar com o cliente do mesmo jeito.",
+    novo:"modelos/novo", ver:"modelos",
+    pode:function(){ return motivoBloqueio("crm_modelos"); },
+    conta:function(){
+      var n = modelosAtivos().length;
+      return n + (n === 1 ? " modelo ativo" : " modelos ativos");
+    } },
+
+  { k:"acessos", ic:"🔑", rot:"Acessos",
+    sub:"Quem entra no CRM e com que poder",
+    txt:"Cada pessoa com a senha dela, e o perfil decidindo o que ela pode fazer. " +
+        "É assim que o sistema sabe quem registrou cada toque.",
+    ver:"acessos",
+    pode:function(){ return ehAdmin() ? null : "Só o Admin mexe em acessos."; },
+    conta:function(){
+      var n = 0;
+      for(var i=0;i<ACESSOS.length;i++) if(ACESSOS[i].ativo !== false) n++;
+      return n ? (n + (n === 1 ? " acesso ativo" : " acessos ativos")) : "nenhum acesso criado ainda";
+    } }
+];
+
+TELAS.config = function(){
+  var h = '<div class="card-head" style="margin-bottom:0"><div>' +
+    '<div class="sec-title">Configurações' + ajuda("config") + '</div>' +
+    '<div class="sec-sub">O que dá pra criar e mudar no sistema, sem precisar de programador.</div>' +
+    '</div></div>';
+
+  h += '<div class="cfg-grade">';
+  for(var i=0;i<CONFIG_ITENS.length;i++){
+    var it = CONFIG_ITENS[i];
+    var bloq = it.pode ? it.pode() : null;
+    var conta = "";
+    try{ conta = it.conta ? it.conta() : ""; }catch(e){ conta = ""; }
+
+    h += '<div class="card cfg-item">' +
+      '<div class="cfg-ic">' + it.ic + '</div>' +
+      '<div class="h3" style="margin:0">' + esc(it.rot) + '</div>' +
+      '<div class="tiny" style="color:var(--text3)">' + esc(it.sub) + '</div>' +
+      '<p class="cfg-txt">' + esc(it.txt) + '</p>' +
+      (conta ? '<div class="tiny mono-num" style="color:var(--text2)">' + esc(conta) + '</div>' : '') +
+      '<div class="cfg-ac">' +
+        '<button class="btn btn-sm" data-a="ir" data-r="' + esc(it.ver) + '">Ver e editar</button>' +
+        (it.novo
+          ? '<button class="btn btn-sm btn-primary" data-a="ir" data-r="' + esc(it.novo) + '"' +
+            (bloq ? ' disabled' : '') + '>+ Criar</button>'
+          : '') +
+      '</div>' +
+      (bloq ? '<div class="tiny" style="color:var(--text3);margin-top:2px">' + esc(bloq) + '</div>' : '') +
+    '</div>';
+  }
+  h += '</div>';
+
+  h += '<div class="card"><div class="tiny muted">' +
+    'Está sentindo falta de configurar alguma coisa que não está aqui? Essa lista cresce. ' +
+    'O que hoje é fixo no código pode virar campo desta tela.</div></div>';
+  return h;
+};
 
 /* ============ PARTIDA ============ */
 if(document.readyState === "loading") document.addEventListener('DOMContentLoaded', boot);

@@ -38,8 +38,9 @@ código 1 quando acha erro, então serve para travar a publicação.
 for f in bancada/testes_*.py; do python3 "$f"; done && python3 testar.py
 ```
 
-São **582 testes** em onze arquivos. Dez cobrem uma área cada (hoje, funil,
-negócio, pessoas, painel, cadastro, núcleo, tutorial, dupla, funis) e o décimo primeiro, `testar.py`, é a
+São **618 testes** em treze arquivos. Doze cobrem uma área cada (hoje, funil,
+negócio, pessoas, painel, cadastro, núcleo, tutorial, dupla, funis, modelos) e o
+décimo terceiro, `testar.py`, é a
 suíte geral que atravessa tudo. Escreva o seu em `bancada/` usando `harness.py`, que
 carrega o CRM inteiro num DOM de mentira e traz os ajudantes prontos. O cabeçalho
 do `harness.py` explica cada um.

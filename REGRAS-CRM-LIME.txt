@@ -79,7 +79,14 @@ service cloud.firestore {
       allow read: if ok();
       allow create, update: if ok() && carimbado()
         && request.resource.data.keys().size() <= 60
-        && request.resource.data.tipo in ['agencia','patrocinio']
+        // POR QUE NAO E MAIS UMA LISTA FECHADA: a casa cria os proprios
+        // funis em crm_tipos, e a regra nao tem como saber quais existem
+        // sem um get() por gravacao, que custa leitura e ainda quebraria
+        // nos dois funis de fabrica, que nao tem documento. Aqui "tipo"
+        // nao decide permissao nenhuma, so diz em qual funil o negocio
+        // esta, entao o que importa e ser texto curto.
+        && request.resource.data.tipo is string
+        && request.resource.data.tipo.size() <= 24
         && request.resource.data.status in ['aberto','ganho','perdido','encerrado']
         && request.resource.data.titulo is string
         && request.resource.data.titulo.size() <= 120
@@ -204,6 +211,26 @@ service cloud.firestore {
         && request.resource.data.dinheiro in ['recorrente','unico']
         && request.resource.data.estagios is list
         && request.resource.data.estagios.size() <= 12;
+      allow delete: if false;
+    }
+
+    // Os modelos de mensagem que a casa escreve. Texto de conversa
+    // comercial, sem dado pessoal e sem dinheiro de ninguem.
+    //
+    // NAO TEM DELETE pelo mesmo motivo dos funis: o texto ja foi usado em
+    // conversa de verdade, e apagar deixaria o historico apontando pra um
+    // modelo que nao existe mais. Desligar e ativo:false.
+    match /crm_modelos/{id} {
+      allow read: if ok();
+      allow create, update: if ok()
+        && request.resource.data.keys().size() <= 10
+        && request.resource.data.k is string
+        && request.resource.data.k.size() <= 32
+        && request.resource.data.rot is string
+        && request.resource.data.rot.size() <= 40
+        && request.resource.data.txt is string
+        && request.resource.data.txt.size() <= 1200
+        && request.resource.data.quando in ['sempre','agencia','patrocinio','indicacao','contato'];
       allow delete: if false;
     }
 
