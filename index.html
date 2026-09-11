@@ -977,7 +977,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.9";
+var VERSAO = "2026-09-11.10";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1719,6 +1719,79 @@ function carregarTipos(){
 function aplicarTiposDoCache(){
   var c = recuperar("tipos", null);
   if(c && c.length){ TIPOS_DOCS = c; aplicarTipos(c); }
+}
+
+/* ---------------------------------------------------------------------
+   EMPRESAS
+
+   Empresa NAO e uma ficha propria neste CRM, e isso foi decidido de
+   proposito: uma entidade a mais so paga quando existem varias contas
+   com varios donos dentro da mesma empresa, e nao e o caso aqui. O que
+   existe e o nome da empresa escrito no negocio e na pessoa, mais uma
+   chave normalizada (empresaChave) que casa as grafias.
+
+   O RISCO DESSA ESCOLHA e conhecido: com duas pessoas cadastrando,
+   "Honda", "Honda do Brasil" e "HONDA MOTOS" viram tres empresas em tres
+   meses e o historico da conta se parte. A defesa e esta lista: todo
+   campo de empresa sugere o que ja existe, entao a grafia converge
+   sozinha em vez de depender de disciplina. */
+function empresasConhecidas(){
+  var grupos = {}, ordem = [], i, ek;
+  var ns = lista("negocios");
+  for(i=0;i<ns.length;i++){
+    ek = ns[i].empresaChave || chave(ns[i].empresa);
+    if(!ek) continue;
+    if(!grupos[ek]){ grupos[ek] = { chave:ek, grafia:ns[i].empresa, negocios:0, pessoas:0 }; ordem.push(ek); }
+    grupos[ek].negocios++;
+  }
+  var cs = lista("contatos");
+  for(i=0;i<cs.length;i++){
+    if(cs[i].arquivado) continue;
+    ek = cs[i].empresaChave || chave(cs[i].empresa);
+    if(!ek) continue;
+    if(!grupos[ek]){ grupos[ek] = { chave:ek, grafia:cs[i].empresa, negocios:0, pessoas:0 }; ordem.push(ek); }
+    grupos[ek].pessoas++;
+  }
+  var r = [];
+  for(i=0;i<ordem.length;i++) r.push(grupos[ordem[i]]);
+  r.sort(function(a, b){ return (b.negocios + b.pessoas) - (a.negocios + a.pessoas); });
+  return r;
+}
+/* Casa por prefixo nos DOIS sentidos: digitar "hond" acha "Honda do
+   Brasil", e digitar "Honda do Brasil Ltda" acha "Honda do Brasil". */
+function empresasQueCasam(txt, limite){
+  var v = chave(txt || "");
+  if(v.length < 2) return [];
+  var todas = empresasConhecidas(), r = [], i;
+  for(i=0;i<todas.length;i++){
+    var ek = todas[i].chave;
+    if(ek === v) continue;                       // ja e exatamente isso
+    if(ek.indexOf(v) !== 0 && v.indexOf(ek) !== 0) continue;
+    r.push(todas[i]);
+    if(limite && r.length >= limite) break;
+  }
+  return r;
+}
+/* Quem mais trabalha nessa empresa, e quais negocios sao dela. */
+function gentePorEmpresa(empresa, exceto){
+  var ek = chave(empresa || ""), r = [], i;
+  if(!ek) return r;
+  var cs = lista("contatos");
+  for(i=0;i<cs.length;i++){
+    if(cs[i].arquivado) continue;
+    if(cs[i].id === exceto) continue;
+    if((cs[i].empresaChave || chave(cs[i].empresa)) !== ek) continue;
+    r.push(cs[i]);
+  }
+  return r;
+}
+function negociosPorEmpresa(empresa){
+  var ek = chave(empresa || ""), r = [], i;
+  if(!ek) return r;
+  var ns = lista("negocios");
+  for(i=0;i<ns.length;i++)
+    if((ns[i].empresaChave || chave(ns[i].empresa)) === ek) r.push(ns[i]);
+  return r;
 }
 
 function souSdr(){   return !!SESSAO && SESSAO.perfil === "sdr"; }
@@ -3060,6 +3133,16 @@ var AJUDA = {
        "entrar no funil, trocar faria todos eles procurarem dinheiro no lugar errado e aparecerem " +
        "valendo zero, então o sistema tranca a escolha.\n\n" +
        "Em lugar nenhum do CRM um valor por mês é somado com um valor de uma vez."
+  },
+
+  empresa_pessoa: {
+    t: "A empresa da pessoa",
+    x: "Onde essa pessoa trabalha. Escreva e o sistema sugere o que já existe.\n\n" +
+       "Aceite a sugestão sempre que ela for a mesma empresa. É o que mantém Honda, " +
+       "Honda do Brasil e HONDA MOTOS como uma coisa só, em vez de três contas separadas " +
+       "com o histórico partido no meio.\n\n" +
+       "Com a empresa preenchida, a ficha de qualquer pessoa de lá mostra as outras pessoas " +
+       "e todos os negócios daquela conta."
   },
 
   /* ---------- acessos ---------- */
@@ -8257,6 +8340,8 @@ TELAS.pessoa = function(){
     </div>
   </div>`;
 
+  h += pesBlocoEmpresa(c);
+
   // Bloco de indicação: a marca, o acordo combinado e o que já rendeu.
   h += `<div class="card ${c.ehIndicador ? "card-lime" : ""}">
     <div class="card-head" style="margin-bottom:11px">
@@ -8363,6 +8448,125 @@ ACOES.pessoaToggleIndicador = function(el){
   });
 };
 
+/* ---------------------------------------------------------------------
+   SUGESTAO DE EMPRESA
+
+   Um so desenho, usado por todo campo de empresa do sistema. O elemento
+   de saida chama-se <id do campo> + "Sug", e o clique preenche o campo
+   com a grafia que ja esta no banco. Sem isso a lista seria decorativa:
+   a pessoa leria "Honda do Brasil" e continuaria digitando "Honda".
+   --------------------------------------------------------------------- */
+function pintarSugEmpresa(idCampo){
+  var inp = document.getElementById(idCampo);
+  var out = document.getElementById(idCampo + "Sug");
+  if(!inp || !out) return;
+  var achados = empresasQueCasam(inp.value, 4);
+  if(!achados.length){ out.innerHTML = ""; return; }
+  var h = '<div class="tiny muted" style="margin:6px 0 4px">Já existe no CRM:</div><div class="pills">', i;
+  for(i=0;i<achados.length;i++){
+    var a = achados[i];
+    var quanto = [];
+    if(a.negocios) quanto.push(a.negocios + (a.negocios === 1 ? " negócio" : " negócios"));
+    if(a.pessoas)  quanto.push(a.pessoas  + (a.pessoas  === 1 ? " pessoa"  : " pessoas"));
+    h += '<button type="button" class="pill" data-a="usarEmpresa" data-campo="' + esc(idCampo) + '"' +
+         ' data-v="' + esc(a.grafia) + '">' + esc(a.grafia) +
+         (quanto.length ? ' <span class="tiny muted">' + esc(quanto.join(", ")) + '</span>' : '') +
+         '</button>';
+  }
+  out.innerHTML = h + '</div>';
+}
+ACOES.usarEmpresa = function(el){
+  var inp = document.getElementById(el.getAttribute('data-campo'));
+  if(!inp) return;
+  inp.value = el.getAttribute('data-v') || "";
+  pintarSugEmpresa(el.getAttribute('data-campo'));
+  if(typeof nnPintarDup === "function" && el.getAttribute('data-campo') === "nnEmpresa") nnPintarDup();
+  if(typeof nnPintarTitulo === "function" && el.getAttribute('data-campo') === "nnEmpresa") nnPintarTitulo();
+};
+
+/* ---------------------------------------------------------------------
+   A EMPRESA DA PESSOA
+
+   Empresa nao e ficha propria aqui (ver empresasConhecidas no nucleo),
+   mas o nome escrito nas duas pontas ja da pra responder as duas
+   perguntas que importam: com quem mais eu falo nessa conta, e o que
+   essa conta ja rendeu.
+
+   POR QUE ISSO IMPORTA NA PRATICA: o contato principal sai da empresa e
+   leva o relacionamento junto. Quem tem os outros nomes anotados liga
+   pro segundo; quem nao tem, comeca a conta do zero.
+   --------------------------------------------------------------------- */
+function pesBlocoEmpresa(c){
+  if(!c.empresa){
+    return `<div class="card">
+      <div class="sec-title">Empresa${ajuda("empresa_pessoa")}</div>
+      <div class="sec-sub" style="padding-left:0">Essa pessoa está sem empresa anotada.</div>
+      <div class="tiny muted" style="margin-top:8px">Com a empresa preenchida, esta ficha passa a mostrar
+      as outras pessoas da mesma conta e os negócios dela. Está no botão Editar, aqui em cima.</div>
+    </div>`;
+  }
+
+  var colegas = gentePorEmpresa(c.empresa, c.id);
+  var negs = negociosPorEmpresa(c.empresa);
+  var abertos = negs.filter(function(n){ return n.status === "aberto"; });
+  var ganhos  = negs.filter(function(n){ return n.status === "ganho"; });
+
+  var h = `<div class="card">
+    <div class="card-head" style="margin-bottom:9px">
+      <div style="min-width:0">
+        <div class="sec-title">${esc(c.empresa)}${ajuda("empresa_pessoa")}</div>
+        <div class="sec-sub" style="padding-left:0">${esc(
+          pesQtd(colegas.length + 1, "pessoa", "pessoas") + " e " +
+          pesQtd(negs.length, "negócio", "negócios") + " nessa conta")}</div>
+      </div>
+    </div>`;
+
+  if(colegas.length){
+    h += '<div class="tiny muted" style="margin-bottom:7px">Quem mais trabalha lá</div><div class="pills">';
+    for(var i=0;i<colegas.length;i++){
+      h += '<button class="pill" data-a="ir" data-r="pessoa/' + esc(colegas[i].id) + '">' +
+        esc(colegas[i].nome) +
+        (colegas[i].cargo ? ' <span class="tiny muted">' + esc(colegas[i].cargo) + '</span>' : '') +
+        '</button>';
+    }
+    h += '</div>';
+  } else {
+    h += '<div class="tiny muted">Ela é a única pessoa cadastrada dessa empresa. ' +
+         'Se o contato sair de lá, a conta fica sem porta de entrada.</div>';
+  }
+
+  if(negs.length){
+    /* Aberto e ganho aparecem separados e com a unidade escrita: somar os
+       dois num numero so daria dinheiro que nao existe. */
+    h += '<div class="tiny muted" style="margin:13px 0 7px">Negócios dessa conta</div>' +
+         '<div style="display:flex;flex-direction:column;gap:7px">';
+    var mostra = negs.slice(0, 6);
+    for(var j=0;j<mostra.length;j++){
+      var n = mostra[j];
+      var selo = n.status === "aberto" ? '<span class="tag tag-lime">em aberto</span>'
+               : n.status === "ganho"  ? '<span class="tag tag-green">ganho</span>'
+               : n.status === "perdido"? '<span class="tag tag-red">perdido</span>'
+               : '<span class="tag">encerrado</span>';
+      h += '<button class="search-it" data-a="ir" data-r="negocio/' + esc(n.id) + '">' +
+        '<span style="flex:1;min-width:0">' +
+          '<span class="t truncate" style="display:block">' + esc(n.titulo || n.empresa) + '</span>' +
+          '<span class="s truncate" style="display:block">' + selo + ' ' +
+            esc(rotTipo(n.tipo)) + ' · ' + esc(ngValorTxt(n)) + '</span>' +
+        '</span></button>';
+    }
+    h += '</div>';
+    if(negs.length > mostra.length)
+      h += '<div class="tiny muted" style="margin-top:7px">e mais ' + (negs.length - mostra.length) +
+           '. A lista inteira está em Negócios, filtrando pelo nome da empresa.</div>';
+    h += '<div class="tiny muted" style="margin-top:9px">' +
+         esc(pesQtd(abertos.length, "em aberto", "em aberto") + " · " +
+             pesQtd(ganhos.length, "já ganho", "já ganhos")) + '</div>';
+  } else {
+    h += '<div class="tiny muted" style="margin-top:11px">Nenhum negócio cadastrado com esse nome de empresa ainda.</div>';
+  }
+  return h + '</div>';
+}
+
 ACOES.pessoaEditar = function(el){
   var c = contatoPorId(el.getAttribute('data-id'));
   if(!c) return;
@@ -8373,8 +8577,9 @@ ACOES.pessoaEditar = function(el){
       <div class="grid2">
         <div class="fld"><label>Cargo</label>
           <input class="inp" id="pfCargo" value="${esc(c.cargo || "")}" maxlength="80"></div>
-        <div class="fld"><label>Empresa</label>
-          <input class="inp" id="pfEmpresa" value="${esc(c.empresa || "")}" maxlength="120"></div>
+        <div class="fld"><label>Empresa${ajuda("empresa_pessoa")}</label>
+          <input class="inp" id="pfEmpresa" autocomplete="off" value="${esc(c.empresa || "")}" maxlength="120">
+          <div id="pfEmpresaSug"></div></div>
       </div>
       <div class="grid2">
         <div class="fld"><label>WhatsApp ou telefone</label>
@@ -10319,7 +10524,10 @@ document.addEventListener('input', function(ev){
   var el = ev.target;
   if(!el || !el.id) return;
   if(el.id === "busca"){ pintarBusca(el.value); return; }
-  if(el.id === "nnEmpresa"){ nnPintarDup(); nnPintarTitulo(); return; }
+  if(el.id === "nnEmpresa"){ nnPintarDup(); nnPintarTitulo(); pintarSugEmpresa("nnEmpresa"); return; }
+  /* Todo campo de empresa do sistema passa por aqui. Um lugar so, senao
+     um deles fica pra tras e volta a criar empresa repetida. */
+  if(el.id === "pfEmpresa" || el.id === "ncEmpresa"){ pintarSugEmpresa(el.id); return; }
   if(el.id === "nnTitulo"){ if(NOVO) NOVO.tituloTocado = true; return; }
   if(el.id === "ncNome" || el.id === "ncTel"){ ncPintarDup(); return; }
   if(el.id === "nnIndicBusca"){ nnPintarIndic(); return; }
@@ -10431,6 +10639,7 @@ function abrirNovoNegocio(pre){
         '<label>Empresa <span class="req">*</span></label>' +
         '<input class="inp" id="nnEmpresa" autocomplete="off" maxlength="120" ' +
           'placeholder="Marroca Editora" value="' + esc(empresa) + '">' +
+        '<div id="nnEmpresaSug"></div>' +
         '<div id="nnDup"></div>' +
       '</div>' +
 
@@ -10997,18 +11206,25 @@ function abrirNovoContato(pre, aoSalvar){
           'só e-mail vira botão de e-mail.</div>' +
       '</div>' +
 
+      /* Empresa saiu de "Mais campos". Escondida, ela era preenchida em
+         uma ficha a cada dez, e sem ela nao da pra juntar as pessoas de
+         uma mesma conta nem saber com quem mais falar quando o contato
+         principal sai da empresa. */
+      '<div class="fld">' +
+        '<label>Empresa</label>' +
+        '<input class="inp" id="ncEmpresa" maxlength="120" autocomplete="off" ' +
+          'placeholder="Marroca Editora" value="' + esc(pre.empresa || "") + '">' +
+        '<div id="ncEmpresaSug"></div>' +
+      '</div>' +
+
       '<div id="ncDup"></div>' +
 
       '<button type="button" class="btn btn-ghost btn-block" data-a="ncMais">Mais campos</button>' +
 
       '<div id="ncExtras" hidden>' +
         '<div class="form">' +
-          '<div class="grid2">' +
-            '<div class="fld"><label>Empresa</label>' +
-              '<input class="inp" id="ncEmpresa" maxlength="120" value="' + esc(pre.empresa || "") + '"></div>' +
-            '<div class="fld"><label>Cargo</label>' +
-              '<input class="inp" id="ncCargo" maxlength="80" value="' + esc(pre.cargo || "") + '"></div>' +
-          '</div>' +
+          '<div class="fld"><label>Cargo</label>' +
+            '<input class="inp" id="ncCargo" maxlength="80" value="' + esc(pre.cargo || "") + '"></div>' +
           '<div class="fld">' +
             '<label style="display:flex;gap:9px;align-items:center;text-transform:none;' +
               'font-size:13px;color:var(--text2)">' +
