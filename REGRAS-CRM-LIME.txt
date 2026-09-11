@@ -1,0 +1,194 @@
+=====================================================================
+REGRAS DO FIRESTORE - PROJETO crm-lime
+=====================================================================
+
+Projeto PROPRIO do CRM comercial da Lime, separado do
+festival-interlagos-2026 em 11/09/2026.
+
+POR QUE SEPARADO, e nada disso tem a ver com plano ou cota:
+  1. Acesso ao console e POR PROJETO. No projeto do festival, quem foi
+     convidado pro evento conseguia abrir o Firestore e ler nome de
+     cliente, valor de contrato e telefone de decisor. Regra de seguranca
+     nao resolve isso, porque o console passa por cima dela.
+  2. Regra e UM arquivo por projeto. Junto, toda mexida no CRM obrigava a
+     republicar o arquivo que governa a Central do Evento, a mobilidade e
+     a pesquisa de imprensa. Agora um erro no CRM nao chega perto do evento.
+  3. O projeto do festival nasceu pra um evento que ja aconteceu. O CRM e
+     pra durar anos.
+
+FATURAMENTO: mesma conta do festival (012838-4D0F3E-9FEC07), plano Blaze,
+mesmo credito. Separar o projeto nao separa a conta nem o custo.
+
+COMO PUBLICAR
+  console.firebase.google.com > crm-lime > Firestore > Regras >
+  colar TUDO daqui pra baixo > Publicar.
+  Aqui pode colar o arquivo inteiro sem medo: este projeto so tem o CRM.
+
+PRE-REQUISITO
+  Authentication > Sign-in method > ANONIMO ativado.
+  O CRM chama signInAnonymously() antes de qualquer leitura. Sem isso todo
+  acesso e recusado. Custa 0 leitura e derruba varredor automatico e curl
+  sem token.
+
+O QUE ESTAS REGRAS GARANTEM
+  formato certo, texto com teto de tamanho, o campo "at" sempre vindo do
+  servidor (nenhum celular com relogio adiantado cega o sincronismo), o
+  tipo do negocio imutavel, autoria de atividade nao reescrita, e NADA
+  apagavel por ninguem, nem por engano nem de proposito.
+
+O QUE ELAS NAO GARANTEM, DITO COM TODAS AS LETRAS
+  Quem passou pelo login anonimo pode ler tudo e escrever em tudo,
+  inclusive criar um acesso de perfil admin. A matriz de perfis do CRM e
+  DESENHO DE TELA, nao fechadura. Na pratica:
+    1. Nao guardar no CRM o que nao pode vazar. Nada de CPF, CNPJ, dado
+       bancario, contrato anexado ou nota pessoal sobre gente. A regua:
+       se voce nao mandaria num grupo de WhatsApp com 50 pessoas, nao
+       escreve no CRM.
+    2. A pagina tem noindex e o repo tem robots.txt com Disallow: /
+    3. Alerta de orcamento no Google Cloud. O banco e aberto, entao quem
+       martelar ele queima credito. O alerta e o que avisa antes de doer.
+    4. Migrar pra Firebase Auth com e-mail e senha no dia em que entrar
+       dado pessoal de terceiro em volume, alguem sair da empresa, ou
+       entrar alguem de fora. A matriz de perfis e o porteiro do codigo
+       nao mudam uma linha nessa migracao: muda o gate, e a regra passa a
+       usar request.auth.uid.
+
+INDICES: nenhum composto.
+
+---------------------------------------------------------------------
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===== CRM COMERCIAL DA LIME =======================================
+    // Prefixo crm_ em tudo, porque o projeto e compartilhado com a
+    // Central do Evento e as regras sao por caminho.
+    //
+    // ok()        = passou pelo login anonimo
+    // carimbado() = o campo "at" e o relogio DO SERVIDOR, nao o do
+    //               celular. E o que faz o sincronismo por delta
+    //               funcionar: um aparelho com a data adiantada gravaria
+    //               um "at" no futuro e cegaria o delta em silencio,
+    //               fazendo o cache mentir sem nenhum sinal na tela.
+
+    function ok(){ return request.auth != null; }
+    function carimbado(){ return request.resource.data.at == request.time; }
+
+    match /crm_negocios/{id} {
+      allow read: if ok();
+      allow create, update: if ok() && carimbado()
+        && request.resource.data.keys().size() <= 60
+        && request.resource.data.tipo in ['agencia','patrocinio']
+        && request.resource.data.status in ['aberto','ganho','perdido','encerrado']
+        && request.resource.data.titulo is string
+        && request.resource.data.titulo.size() <= 120
+        && request.resource.data.empresa is string
+        && request.resource.data.empresa.size() <= 120
+        && request.resource.data.valorRef is int
+        && request.resource.data.arquivado is bool
+        // criadoEm TEM que ser exigido aqui, nao so comparado no update
+        // logo abaixo. Documento que entrasse sem ele (pelo console, por
+        // import, por script de correcao) ficaria impossivel de editar
+        // pra sempre, porque a comparacao com resource.data.criadoEm nunca
+        // daria certo, e a tela so diria "recusado pela regra do banco".
+        && request.resource.data.criadoEm is string
+        && request.resource.data.criadoEm.size() == 10
+        && (!('obs' in request.resource.data)
+            || request.resource.data.obs.size() <= 1000)
+        && (!('motivoPerdaObs' in request.resource.data)
+            || request.resource.data.motivoPerdaObs.size() <= 400)
+        && (!('linkProposta' in request.resource.data)
+            || request.resource.data.linkProposta.size() <= 300)
+        // tipo e imutavel: trocar agencia por patrocinio deixaria os
+        // campos do outro tipo orfaos e quebraria toda soma
+        && (resource == null || request.resource.data.tipo == resource.data.tipo)
+        && (resource == null || request.resource.data.criadoEm == resource.data.criadoEm);
+      // Apagar nao existe. Exclusao e arquivado:true, que e ESCRITA e
+      // portanto viaja no sincronismo por delta. Delete de verdade
+      // sumiria do delta e deixaria o cache de todo mundo mentindo.
+      allow delete: if false;
+    }
+
+    match /crm_contatos/{id} {
+      allow read: if ok();
+      allow create, update: if ok() && carimbado()
+        && request.resource.data.keys().size() <= 25
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() <= 120
+        && (!('obs' in request.resource.data)
+            || request.resource.data.obs.size() <= 400)
+        && (!('tel' in request.resource.data)
+            || request.resource.data.tel.size() <= 20)
+        && request.resource.data.arquivado is bool;
+      allow delete: if false;
+    }
+
+    match /crm_tarefas/{id} {
+      allow read: if ok();
+      allow create, update: if ok() && carimbado()
+        && request.resource.data.keys().size() <= 20
+        && request.resource.data.texto is string
+        && request.resource.data.texto.size() <= 160
+        && request.resource.data.feita is bool;
+      allow delete: if false;
+    }
+
+    // Colecao que cresce pra sempre (cerca de 2 mil por ano). O teto de
+    // texto e obrigatorio: sem ele um colar de 200 KB entra e cada
+    // abertura de negocio fica cara pra sempre.
+    match /crm_atividades/{id} {
+      allow read: if ok();
+      allow create: if ok() && carimbado()
+        && request.resource.data.keys().size() <= 14
+        && request.resource.data.texto is string
+        && request.resource.data.texto.size() <= 1200
+        && request.resource.data.tipo is string
+        && request.resource.data.tipo.size() <= 20
+        && request.resource.data.por is string
+        && request.resource.data.por.size() <= 60
+        && request.resource.data.quando is string
+        && request.resource.data.quando.size() == 10
+        // mesmo caso do criadoEm: o update compara ts com o que esta
+        // gravado, entao criar sem ts deixaria a atividade ineditavel.
+        && request.resource.data.ts is number;
+      // Corrigir o texto pode. Reescrever autoria e momento nao: senao
+      // o registro deixa de ser registro.
+      allow update: if ok() && carimbado()
+        && request.resource.data.por == resource.data.por
+        && request.resource.data.ts == resource.data.ts
+        && request.resource.data.texto.size() <= 1200;
+      allow delete: if false;
+    }
+
+    match /crm_config/{doc} {
+      allow read: if ok();
+      allow create, update: if ok() && doc in ['geral']
+        && request.resource.data.keys().size() <= 10;
+      allow delete: if false;
+    }
+
+    // A senha NUNCA e gravada. O que fica aqui e o SHA-256 do sal mais a
+    // senha. O hash e legivel por quem passou pelo login anonimo, e isso
+    // esta assumido: a protecao real e a senha ser longa, e o botao de
+    // criar acesso gera 12 caracteres por causa disso.
+    match /crm_acessos/{id} {
+      allow read: if ok();
+      allow create, update: if ok()
+        && request.resource.data.keys().size() <= 10
+        && request.resource.data.perfil in ['admin','vendedor','gestor']
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() <= 80
+        && request.resource.data.hash is string
+        && request.resource.data.hash.size() == 64
+        && request.resource.data.ativo is bool;
+      // Revogar e ativo:false. A sessao da pessoa cai na proxima carga.
+      allow delete: if false;
+    }
+
+    // Qualquer outro caminho fica fechado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
