@@ -640,13 +640,13 @@ table.tb td.r,table.tb th.r{text-align:right;font-variant-numeric:tabular-nums}
              reage a DIGITACAO. Quem escuta e o escutador de input do
              modulo de cadastro, delegado no documento, que funciona
              mesmo com a tela sendo repintada por baixo. -->
-        <input class="inp" id="busca" type="search" placeholder="Buscar empresa, pessoa ou negocio"
+        <input class="inp" id="busca" type="search" placeholder="Buscar empresa, pessoa ou negócio"
                autocomplete="off" aria-label="Buscar">
         <div class="search-out" id="buscaOut" hidden></div>
       </div>
 
       <button class="btn btn-primary" data-a="novo" title="Novo negocio">
-        <span>+</span><span class="no-mob">Negocio</span>
+        <span>+</span><span class="no-mob">Negócio</span>
       </button>
 
       <span class="sync sync-ok" id="pontoSync" title="tudo salvo"></span>
@@ -11410,11 +11410,15 @@ function tuTexto(x, y, s, tam, cor, peso, ancora){
          'font-family="Inter,system-ui,sans-serif"' +
          (ancora ? ' text-anchor="' + ancora + '"' : '') + '>' + esc(s) + '</text>';
 }
+/* A ponta acompanha o sentido: a seta de volta do ciclo anda da direita
+   pra esquerda, e com a ponta fixa pra direita ela apontaria pro lado
+   errado, dizendo o contrario do desenho. */
 function tuSeta(x1, y, x2, cor){
   var c = cor || "rgba(255,255,255,0.30)";
-  return '<line x1="' + x1 + '" y1="' + y + '" x2="' + (x2 - 7) + '" y2="' + y + '" ' +
+  var s = (x2 >= x1) ? 1 : -1;
+  return '<line x1="' + x1 + '" y1="' + y + '" x2="' + (x2 - 7 * s) + '" y2="' + y + '" ' +
          'stroke="' + c + '" stroke-width="1.5"/>' +
-         '<path d="M' + (x2 - 8) + ' ' + (y - 4) + ' L' + x2 + ' ' + y + ' L' + (x2 - 8) + ' ' + (y + 4) + 'Z" fill="' + c + '"/>';
+         '<path d="M' + (x2 - 8 * s) + ' ' + (y - 4) + ' L' + x2 + ' ' + y + ' L' + (x2 - 8 * s) + ' ' + (y + 4) + 'Z" fill="' + c + '"/>';
 }
 /* Uma figura inteira: moldura, legenda embaixo e rotulo de acessibilidade. */
 function tuFig(vbW, vbH, dentro, legenda){
@@ -11499,7 +11503,7 @@ function tuFigCard(){
     d += tuTexto(524, y, String(i + 1), 11, "#C8FF00", 700, "middle");
     d += tuTexto(540, y, chamadas[i][1], 11.5, "#E8E8E8");
   }
-  return tuFig(760, 142, d, "Um cartão da fila de hoje, por dentro. Tudo que você precisa pra decidir está na frente, sem abrir nada.");
+  return tuFig(940, 142, d, "Um cartão da fila de hoje, por dentro. Tudo que você precisa pra decidir está na frente, sem abrir nada.");
 }
 
 /* ---------- figura 4: o ciclo de trabalho ---------- */
@@ -11519,9 +11523,11 @@ function tuFigCiclo(){
     d += tuTexto(x + 84, 76, passos[i][1], 10.5, "#ADADAD", 400, "middle");
     if(i < 3) d += tuSeta(x + 172, 62, x + 186);
   }
-  d += tuSeta(670, 116, 100, "rgba(200,255,0,0.25)");
-  d += '<line x1="92" y1="62" x2="92" y2="116" stroke="rgba(200,255,0,0.25)" stroke-width="1.5"/>';
-  d += '<line x1="670" y1="62" x2="670" y2="116" stroke="rgba(200,255,0,0.25)" stroke-width="1.5"/>';
+  /* A volta sai da BORDA DE BAIXO das caixas (y=98), nao do meio delas:
+     sair do meio desenha uma linha por cima do texto da ultima etapa. */
+  d += tuSeta(662, 116, 100, "rgba(200,255,0,0.25)");
+  d += '<line x1="92" y1="98" x2="92" y2="116" stroke="rgba(200,255,0,0.25)" stroke-width="1.5"/>';
+  d += '<line x1="662" y1="98" x2="662" y2="116" stroke="rgba(200,255,0,0.25)" stroke-width="1.5"/>';
   d += tuTexto(380, 132, "e recomeça, até virar Ganho ou Perdido", 11, "#C8FF00", 600, "middle");
   return tuFig(760, 146, d, "O ciclo. Você nunca precisa lembrar de cobrar ninguém: o próximo passo é que puxa o negócio de volta pra fila.");
 }
