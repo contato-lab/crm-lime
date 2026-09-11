@@ -576,6 +576,32 @@ table.tb td.r,table.tb th.r{text-align:right;font-variant-numeric:tabular-nums}
     font-family:var(--disp);font-weight:700;font-size:13px;
     letter-spacing:.6px;text-transform:uppercase}
 }
+
+/* ---------- TUTORIAL ----------
+   Passo numerado com o numero fora do texto, pra vista bater o olho e
+   saber onde parou. As figuras sao SVG que escala sozinho: largura 100%
+   e altura automatica, entao o mesmo desenho serve monitor e celular. */
+.tu-passo{display:flex;gap:14px;align-items:flex-start;margin-bottom:12px}
+.tu-n{flex:0 0 auto;width:30px;height:30px;border-radius:50%;
+  background:var(--lime-dim);border:1px solid var(--lime-border);color:var(--lime);
+  font-family:var(--disp);font-size:17px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;margin-top:1px}
+.tu-bd{min-width:0;flex:1 1 auto}
+.tu-bd p{margin:0 0 9px;color:var(--text2);line-height:1.55}
+.tu-bd p:last-child{margin-bottom:0}
+.tu-bd b{color:var(--text)}
+.tu-fig{margin:12px 0 2px;padding:0}
+.tu-fig svg{width:100%;height:auto;display:block;
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--rad-sm)}
+.tu-fig figcaption{margin-top:7px;font-size:11.5px;font-weight:450;color:var(--text3);line-height:1.5}
+@media(max-width:760px){
+  .tu-passo{gap:10px}
+  .tu-n{width:26px;height:26px;font-size:15px}
+  /* No celular a figura larga vira ilegivel encolhida. Deixa rolar
+     na horizontal dentro da propria moldura, sem empurrar a pagina. */
+  .tu-fig{overflow-x:auto}
+  .tu-fig svg{min-width:560px}
+}
 </style>
 </head>
 <body>
@@ -951,7 +977,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.5";
+var VERSAO = "2026-09-11.6";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1974,7 +2000,9 @@ var ABAS = [
   { k:"negocios", rot:"Negócios", ic:"💼" },
   { k:"pessoas",  rot:"Pessoas",  ic:"👥" },
   { k:"painel",   rot:"Painel",   ic:"📊" },
-  { k:"acessos",  rot:"Acessos",  ic:"🔑", soAdmin:true }
+  { k:"acessos",  rot:"Acessos",  ic:"🔑", soAdmin:true },
+  // Fica por ultimo de proposito: e a aba que se le uma vez, nao todo dia.
+  { k:"tutorial", rot:"Tutorial", ic:"📖" }
 ];
 
 function redesenhar(){
@@ -2789,6 +2817,14 @@ var AJUDA = {
        "Vermelho: a última tentativa falhou.\n\n" +
        "Pode registrar sem sinal tranquilo. O que você escrever fica guardado no aparelho e " +
        "sobe quando a conexão voltar."
+  },
+
+  tutorial: {
+    t: "Tutorial",
+    x: "A explicação do sistema inteiro, do começo ao fim, escrita pra quem nunca usou um CRM.\n\n" +
+       "Os desenhos dos funis saem do próprio código: se alguém mudar uma etapa amanhã, o desenho " +
+       "muda junto. Tutorial que envelhece sem avisar ensina errado.\n\n" +
+       "Se você já opera CRM, pule direto pro passo 3, que é onde está o que este aqui faz de diferente."
   }
 };
 
@@ -11338,6 +11374,257 @@ ACOES.acAtivar = function(el){
       redesenhar();
     })
     .catch(function(e){ a.ativo = false; toast("Não deu: " + ((e && e.message) || "erro"), "bad"); redesenhar(); });
+};
+
+/* ============ 12-tutorial ============ */
+/* =====================================================================
+   CRM LIME - TUTORIAL
+
+   A tela de aprender. Quem abre aqui pode nunca ter usado um CRM, e
+   pode ser a pessoa que ja usou cinco. Os dois precisam achar o que
+   querem sem ler tudo.
+
+   POR QUE OS DESENHOS SAO SVG ESCRITO NA MAO, E NAO PRINT DE TELA
+   Print vira mentira. Trocou um botao de lugar, mudou um rotulo, e a
+   imagem continua mostrando a versao antiga sem avisar ninguem. Como o
+   deploy da casa e upload de UM arquivo, imagem separada ainda teria o
+   problema de ficar pra tras num upload esquecido. Desenho em SVG mora
+   dentro do proprio index.html, pesa alguns kilobytes e usa as mesmas
+   cores do sistema, entao acompanha o tema.
+
+   MELHOR AINDA: o que da pra desenhar a partir do codigo e desenhado a
+   partir do codigo. Os funis abaixo saem de FUNIL e de TIPOS. Se alguem
+   mexer num estagio amanha, o desenho do tutorial muda junto, sozinho.
+   ===================================================================== */
+
+/* ---------- tijolos de desenho ---------- */
+/* Caixa com titulo, o formato que se repete em quase toda figura. */
+function tuCaixa(x, y, w, h, titulo, cor, preench){
+  return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="8" ' +
+         'fill="' + (preench || "#1A1A1A") + '" stroke="' + (cor || "rgba(255,255,255,0.13)") + '"/>' +
+         (titulo ? tuTexto(x + 12, y + 22, titulo, 13, "#FFFFFF", 600) : "");
+}
+function tuTexto(x, y, s, tam, cor, peso, ancora){
+  return '<text x="' + x + '" y="' + y + '" font-size="' + (tam || 12) + '" ' +
+         'fill="' + (cor || "#ADADAD") + '" font-weight="' + (peso || 400) + '" ' +
+         'font-family="Inter,system-ui,sans-serif"' +
+         (ancora ? ' text-anchor="' + ancora + '"' : '') + '>' + esc(s) + '</text>';
+}
+function tuSeta(x1, y, x2, cor){
+  var c = cor || "rgba(255,255,255,0.30)";
+  return '<line x1="' + x1 + '" y1="' + y + '" x2="' + (x2 - 7) + '" y2="' + y + '" ' +
+         'stroke="' + c + '" stroke-width="1.5"/>' +
+         '<path d="M' + (x2 - 8) + ' ' + (y - 4) + ' L' + x2 + ' ' + y + ' L' + (x2 - 8) + ' ' + (y + 4) + 'Z" fill="' + c + '"/>';
+}
+/* Uma figura inteira: moldura, legenda embaixo e rotulo de acessibilidade. */
+function tuFig(vbW, vbH, dentro, legenda){
+  return '<figure class="tu-fig">' +
+         '<svg viewBox="0 0 ' + vbW + ' ' + vbH + '" role="img" aria-label="' + esc(legenda) + '">' +
+         dentro + '</svg>' +
+         '<figcaption>' + esc(legenda) + '</figcaption></figure>';
+}
+
+/* ---------- figura 1: as abas e pra que serve cada uma ---------- */
+function tuFigAbas(){
+  var itens = [
+    ["⚡", "Hoje",     "o que cobrar agora"],
+    ["▦", "Funil",    "tudo em aberto, por etapa"],
+    ["💼", "Negócios", "a lista com busca e filtro"],
+    ["👥", "Pessoas",  "quem indica quem"],
+    ["📊", "Painel",   "os números do mês"],
+    ["🔑", "Acessos",  "quem entra e com que poder"]
+  ];
+  var d = tuCaixa(6, 6, 748, 132, "", "rgba(255,255,255,0.07)", "#141414"), i;
+  for(i=0;i<itens.length;i++){
+    var x = 18 + i * 123;
+    d += tuCaixa(x, 22, 112, 100, "", (i === 0 ? "rgba(200,255,0,0.25)" : "rgba(255,255,255,0.13)"),
+                 (i === 0 ? "rgba(200,255,0,0.10)" : "#1A1A1A"));
+    d += tuTexto(x + 56, 56, itens[i][0], 20, "#FFFFFF", 400, "middle");
+    d += tuTexto(x + 56, 80, itens[i][1], 13, (i === 0 ? "#C8FF00" : "#FFFFFF"), 600, "middle");
+    var p = itens[i][2].split(" "), linha1 = "", linha2 = "";
+    for(var j=0;j<p.length;j++){
+      if((linha1 + " " + p[j]).length <= 16 && !linha2) linha1 += (linha1 ? " " : "") + p[j];
+      else linha2 += (linha2 ? " " : "") + p[j];
+    }
+    d += tuTexto(x + 56, 98, linha1, 10.5, "#ADADAD", 400, "middle");
+    if(linha2) d += tuTexto(x + 56, 111, linha2, 10.5, "#ADADAD", 400, "middle");
+  }
+  return tuFig(760, 144, d, "As seis abas do menu da esquerda. Acessos só aparece pra quem é Admin.");
+}
+
+/* ---------- figura 2: os dois funis, desenhados a partir de FUNIL ---------- */
+function tuFigFunis(){
+  var d = "", linha = 0, t;
+  for(t=0;t<TIPOS.length;t++){
+    var k = TIPOS[t].k, f = FUNIL[k] || [];
+    var yTopo = 10 + linha * 118;
+    d += tuTexto(8, yTopo + 16, TIPOS[t].ic + "  " + TIPOS[t].rotLongo, 14, "#C8FF00", 700);
+    var larg = Math.floor((744 - (f.length - 1) * 26) / f.length);
+    for(var i=0;i<f.length;i++){
+      var x = 8 + i * (larg + 26), y = yTopo + 30;
+      d += tuCaixa(x, y, larg, 58, "", "rgba(255,255,255,0.13)");
+      d += tuTexto(x + larg / 2, y + 24, f[i].rot, 11.5, "#FFFFFF", 600, "middle");
+      d += tuTexto(x + larg / 2, y + 43, pct(f[i].p * 100, 0) + " de chance", 10, "#ADADAD", 400, "middle");
+      if(i < f.length - 1) d += tuSeta(x + larg + 4, y + 29, x + larg + 22);
+    }
+    d += tuTexto(8, yTopo + 105, "Ganho fecha o negócio. Perdido pede o motivo.", 10.5, "#ADADAD");
+    linha++;
+  }
+  return tuFig(760, 246, d,
+    "Os dois funis. Agência anda em quatro etapas, patrocínio em cinco. A porcentagem é a chance média de fechar em cada etapa.");
+}
+
+/* ---------- figura 3: anatomia de um card da fila de hoje ---------- */
+function tuFigCard(){
+  var d = tuCaixa(6, 6, 500, 128, "", "rgba(255,68,68,0.35)", "#141414");
+  d += tuTexto(24, 34, "🔥", 15, "#FF4444", 400);
+  d += tuTexto(48, 34, "MARROCA EDITORA", 14, "#FFFFFF", 700);
+  d += tuTexto(490, 34, "R$ 3.500/mês", 13, "#C8FF00", 700, "end");
+  d += tuTexto(24, 58, "Cobrar resposta da proposta, venceu há 3 dias", 11.5, "#FF4444", 600);
+  d += tuTexto(24, 76, "Último toque 5 set, há 6 dias: mandei a proposta de 12 meses", 10.5, "#ADADAD");
+  d += tuCaixa(24, 90, 86, 30, "", "rgba(255,255,255,0.13)");
+  d += tuTexto(67, 110, "💬 Zap", 11.5, "#FFFFFF", 600, "middle");
+  d += tuCaixa(120, 90, 86, 30, "", "rgba(200,255,0,0.25)", "rgba(200,255,0,0.10)");
+  d += tuTexto(163, 110, "✓ Feito", 11.5, "#C8FF00", 600, "middle");
+  /* chamadas numeradas */
+  var chamadas = [
+    [26, "o nome da empresa e quanto ela vale por mês"],
+    [58, "o próximo passo, e há quantos dias ele venceu"],
+    [76, "o que aconteceu da última vez, pra não repetir"],
+    [105, "abre a conversa, ou marca o passo como feito"]
+  ];
+  for(var i=0;i<chamadas.length;i++){
+    var y = chamadas[i][0];
+    d += '<circle cx="524" cy="' + (y - 4) + '" r="9" fill="rgba(200,255,0,0.10)" stroke="rgba(200,255,0,0.25)"/>';
+    d += tuTexto(524, y, String(i + 1), 11, "#C8FF00", 700, "middle");
+    d += tuTexto(540, y, chamadas[i][1], 11.5, "#E8E8E8");
+  }
+  return tuFig(760, 142, d, "Um cartão da fila de hoje, por dentro. Tudo que você precisa pra decidir está na frente, sem abrir nada.");
+}
+
+/* ---------- figura 4: o ciclo de trabalho ---------- */
+function tuFigCiclo(){
+  var passos = [
+    ["Cadastra", "empresa, tipo e valor"],
+    ["Registra o toque", "o que foi conversado"],
+    ["Marca o próximo passo", "o que fazer e quando"],
+    ["Aparece no Hoje", "no dia certo, sozinho"]
+  ];
+  var d = "";
+  for(var i=0;i<passos.length;i++){
+    var x = 8 + i * 190;
+    d += tuCaixa(x, 26, 168, 72, "", i === 3 ? "rgba(200,255,0,0.25)" : "rgba(255,255,255,0.13)",
+                 i === 3 ? "rgba(200,255,0,0.10)" : "#1A1A1A");
+    d += tuTexto(x + 84, 56, passos[i][0], 12.5, i === 3 ? "#C8FF00" : "#FFFFFF", 700, "middle");
+    d += tuTexto(x + 84, 76, passos[i][1], 10.5, "#ADADAD", 400, "middle");
+    if(i < 3) d += tuSeta(x + 172, 62, x + 186);
+  }
+  d += tuSeta(670, 116, 100, "rgba(200,255,0,0.25)");
+  d += '<line x1="92" y1="62" x2="92" y2="116" stroke="rgba(200,255,0,0.25)" stroke-width="1.5"/>';
+  d += '<line x1="670" y1="62" x2="670" y2="116" stroke="rgba(200,255,0,0.25)" stroke-width="1.5"/>';
+  d += tuTexto(380, 132, "e recomeça, até virar Ganho ou Perdido", 11, "#C8FF00", 600, "middle");
+  return tuFig(760, 146, d, "O ciclo. Você nunca precisa lembrar de cobrar ninguém: o próximo passo é que puxa o negócio de volta pra fila.");
+}
+
+/* ---------- o texto do tutorial ---------- */
+/* Cada passo e um bloco. Titulo curto, um paragrafo de porque, e o que
+   fazer. Figura so onde desenho explica melhor que frase. */
+function tuPasso(n, titulo, corpo, figura){
+  return '<div class="card tu-passo">' +
+           '<div class="tu-n">' + n + '</div>' +
+           '<div class="tu-bd"><div class="h3" style="margin:0 0 8px">' + titulo + '</div>' +
+           corpo + (figura || "") + '</div></div>';
+}
+
+TELAS.tutorial = function(){
+  var h = '<div class="sec-title">Como usar este CRM ' + ajuda("tutorial") + '</div>' +
+    '<div class="sec-sub">Leia de cima pra baixo uma vez e você já sabe operar. Depois volte só no pedaço que precisar.</div>';
+
+  h += '<div class="card card-lime" style="margin-bottom:14px">' +
+    '<p style="margin:0 0 8px"><b>O que este CRM faz, em uma frase.</b> Ele impede que um negócio esfrie sem ninguém perceber.</p>' +
+    '<p class="tiny" style="margin:0;color:var(--text2)">Todo o resto (lista, funil, gráfico) existe pra sustentar essa frase. ' +
+    'Se você só tiver dois minutos por dia, gaste na aba Hoje.</p></div>';
+
+  h += tuPasso(1, "As abas, e pra que serve cada uma",
+    '<p>O menu da esquerda (no celular, embaixo) tem seis abas. Elas não são seis programas: são seis jeitos de olhar ' +
+    'a mesma lista de negócios.</p>' +
+    '<p class="tiny" style="color:var(--text2)">O número vermelho ao lado de <b>Hoje</b> é quanta coisa está atrasada. ' +
+    'Se ele estiver em zero, você está em dia, e pode fechar o CRM em paz.</p>',
+    tuFigAbas());
+
+  h += tuPasso(2, "Entrar, e trocar a sua senha",
+    '<p>Cada pessoa entra com a senha dela, não com uma senha compartilhada. É assim que o CRM sabe quem registrou cada toque.</p>' +
+    '<p>No topo, clique no seu nome e depois em <b>Minha senha</b>. Se você entrou pela senha de recuperação, ' +
+    'a primeira coisa a fazer é criar o seu acesso em <b>Acessos</b> e sair dessa senha de emergência, ' +
+    'porque ela está escrita no código público da página.</p>');
+
+  h += tuPasso(3, "Os dois tipos de negócio, e por que eles nunca se somam",
+    '<p>Contrato de agência é <b>dinheiro que se repete todo mês</b>: um fee de mídia, tráfego ou social. ' +
+    'Cota de patrocínio é <b>dinheiro que entra uma vez</b>, na edição do festival.</p>' +
+    '<p>Somar os dois dá um número que não existe. R$ 3.000 por mês durante um ano não é a mesma coisa que ' +
+    'R$ 3.000 de cota. Por isso o CRM mostra os dois lado a lado, sempre separados, com a unidade escrita: ' +
+    '<span class="mono-num">/mês</span> num, valor cheio no outro.</p>' +
+    '<p class="tiny" style="color:var(--text2)">Cada tipo tem o funil dele, com etapas e prazos próprios, ' +
+    'porque fechar uma cota leva meses e fechar um fee leva semanas.</p>',
+    tuFigFunis());
+
+  h += tuPasso(4, "Cadastrar um negócio",
+    '<p>Botão <b>+ Negócio</b>, lá em cima, de qualquer tela. Você só precisa de três coisas pra começar: ' +
+    'o nome da empresa, o tipo, e de onde veio.</p>' +
+    '<p>Valor pode ficar pra depois. Um negócio sem valor aparece como <b>valor a definir</b> e continua na fila normalmente, ' +
+    'o que é melhor do que você inventar um número pra preencher o campo.</p>' +
+    '<p class="tiny" style="color:var(--text2)">Se a empresa já estiver cadastrada, o CRM avisa antes de duplicar.</p>');
+
+  h += tuPasso(5, "O ciclo do dia a dia",
+    '<p>Toque é o que já aconteceu. Próximo passo é o que ainda vai acontecer, com data. ' +
+    'Registrar um toque sem marcar o próximo passo é como anotar um recado e jogar fora.</p>',
+    tuFigCiclo());
+
+  h += tuPasso(6, "A fila de hoje, por dentro",
+    '<p>A aba Hoje junta tudo que tem próximo passo pra hoje ou pra trás, mais o que está em silêncio ' +
+    'há mais tempo do que a etapa aguenta. Vem ordenado: o mais urgente e mais caro primeiro.</p>',
+    tuFigCard());
+
+  h += tuPasso(7, "Indicação, que é de onde vem a casa",
+    '<p>Quando um negócio nasce de indicação, anote <b>quem indicou</b>. Não é burocracia. ' +
+    'É o que faz a aba <b>Pessoas</b> responder quem realmente traz dinheiro pra dentro, ' +
+    'e quem anda sumido e merece uma ligação.</p>' +
+    '<p class="tiny" style="color:var(--text2)">Negócio com origem indicação e sem indicador anotado aparece ' +
+    'em amarelo na aba Pessoas, pra você completar depois.</p>');
+
+  h += tuPasso(8, "O Painel, e o que cada número quer dizer",
+    '<p>Todo número no Painel tem uma bolinha <b>?</b> do lado. Passe o mouse (ou toque, no celular) ' +
+    'e ele explica de onde saiu a conta.</p>' +
+    '<p>Duas leituras não confunda: <b>fechado no mês</b> é o que virou contrato neste mês. ' +
+    '<b>Caixa</b> é dinheiro que entrou. O CRM não é sistema financeiro, então ele fala de contrato fechado, não de boleto pago.</p>' +
+    '<p class="tiny" style="color:var(--text2)">Média só aparece com 3 casos ou mais. Com menos que isso, ' +
+    'o CRM lista os valores um a um, porque média de dois números engana.</p>');
+
+  h += tuPasso(9, "Acessos: quem entra e com que poder",
+    '<p>Só quem é Admin vê essa aba. São três perfis: <b>Admin</b> mexe em tudo e cria gente, ' +
+    '<b>Comercial</b> opera os negócios, e <b>Leitura</b> só olha.</p>' +
+    '<p>Leitura é o perfil pra quem quer acompanhar sem risco de mexer sem querer. ' +
+    'Quem está em Leitura vê os botões desabilitados com o motivo escrito, em vez de clicar e dar erro.</p>');
+
+  h += tuPasso(10, "A regra de ouro do que escrever aqui",
+    '<p>Esta página está aberta pra quem tiver o endereço. Então vale uma régua simples: ' +
+    '<b>se você não mandaria num grupo de WhatsApp com 50 pessoas, não escreve aqui.</b></p>' +
+    '<p>Nada de CPF, CNPJ, dado bancário, cláusula de contrato ou comentário pessoal sobre alguém. ' +
+    'Nome da empresa, valor, etapa e o que foi conversado: isso sim.</p>');
+
+  h += tuPasso(11, "Sem internet, continua funcionando",
+    '<p>O CRM guarda o que você fez no próprio aparelho e manda pro servidor quando a conexão voltar. ' +
+    'O indicador no topo mostra o estado: sincronizado, gravando, ou pendente.</p>' +
+    '<p class="tiny" style="color:var(--text2)">Só não feche o aplicativo com pendência e troque de celular no mesmo minuto. ' +
+    'Espere o indicador ficar verde.</p>');
+
+  h += '<div class="card" style="margin-top:14px">' +
+    '<div class="h3" style="margin:0 0 8px">Travou em alguma coisa?</div>' +
+    '<p style="margin:0 0 6px">Procure a bolinha <b>?</b> perto do que você não entendeu. ' +
+    'Tem uma em cada termo do sistema, e ela explica em duas linhas, sem palavra difícil.</p>' +
+    '<p class="tiny" style="margin:0;color:var(--text2)">Versão ' + esc(VERSAO) + '</p></div>';
+
+  return h;
 };
 
 /* ============ PARTIDA ============ */
