@@ -988,7 +988,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.14";
+var VERSAO = "2026-09-11.15";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -6426,7 +6426,7 @@ ACOES.ngLimparFiltro = function(){
   redesenhar();
 };
 ACOES.ngAbrir = function(el){ ir("negocio/" + el.getAttribute('data-id')); };
-ACOES.ngNovo  = function(){ abrirNovoNegocio({}); };
+ACOES.ngNovo  = function(){ abrirNovoNegocio({ tipo: nnFunilDaTela() }); };
 
 /* =====================================================================
    TELA: NEGÓCIO (o detalhe)
@@ -11145,8 +11145,12 @@ function nnRascunho(){
 
 function abrirNovoNegocio(pre){
   pre = pre || {};
+  var ativosIni = tiposAtivos();
   NOVO = {
-    tipo: pre.tipo || "agencia",
+    /* Sem herdar nada, cai no PRIMEIRO funil ativo, nao em "agencia"
+       escrito na mao: numa casa que desligou o de agencia, o cadastro
+       nasceria num funil que nao existe mais na escolha. */
+    tipo: pre.tipo || (ativosIni[0] && ativosIni[0].k) || "agencia",
     origem: pre.origem || "",
     indicadorId: pre.indicadorId || "",
     indicadorNome: "",
@@ -11201,8 +11205,10 @@ function abrirNovoNegocio(pre){
       '</div>' +
 
       '<div class="fld">' +
-        '<label>Tipo <span class="req">*</span></label>' +
-        '<div class="grid2" id="nnTipos"></div>' +
+        '<label>Funil <span class="req">*</span>' + ajuda("funis") + '</label>' +
+        '<div class="pills" id="nnTipos"></div>' +
+        '<div class="hint">O funil não muda depois de salvo: cada um tem etapas próprias e ' +
+        'um formato de dinheiro próprio, e trocar deixaria os valores no lugar errado.</div>' +
         '<div class="hint" id="nnPrev"></div>' +
       '</div>' +
 
@@ -11247,6 +11253,17 @@ function abrirNovoNegocio(pre){
   nnPintarContatoBloco(); nnPintarProx(); nnPintarTitulo(); nnPintarDup();
 }
 
+/* O FUNIL, EM CHIPS QUE QUEBRAM LINHA.
+
+   Era uma grade de duas colunas com dois botoes grandes, e a frase
+   embaixo nomeava agencia e patrocinio como se fossem os unicos. Os
+   funis viraram configuraveis, entao a tela estava mentindo sobre o
+   proprio sistema: um terceiro funil ja entrava aqui e ficava torto.
+
+   Chip que quebra linha e o mesmo desenho do campo "de onde veio", logo
+   abaixo. Duas listas de escolha lado a lado com formatos diferentes
+   fazem a pessoa achar que sao conceitos diferentes, quando as duas sao
+   a mesma coisa: escolher um item de uma lista que a casa configura. */
 function nnPintarTipos(){
   var w = document.getElementById('nnTipos');
   if(!w || !NOVO) return;
@@ -11254,13 +11271,13 @@ function nnPintarTipos(){
   var ativos = tiposAtivos();
   for(var i=0;i<ativos.length;i++){
     var t = ativos[i], on = (NOVO.tipo === t.k);
-    h += '<button type="button" class="btn btn-lg btn-block' + (on ? ' btn-primary' : '') + '" ' +
+    h += '<button type="button" class="pill' + (on ? ' on' : '') + '" ' +
          'data-a="nnTipo" data-k="' + t.k + '">' + t.ic + ' ' + esc(t.rot) + '</button>';
   }
-  // Tipo é imutavel depois de criado (invariante 6). Dito aqui, que é o
-  // unico momento em que da pra escolher.
-  h += '<div class="tiny muted" style="grid-column:1/-1">O tipo não muda depois de salvo. ' +
-       'Agência é fee por mês, patrocínio é cota do festival.</div>';
+  /* O "+" leva pra criacao de funil, igual ao das fontes. A falta de um
+     funil aparece aqui, olhando os que existem e nao achando o seu. */
+  if(!motivoBloqueio("crm_tipos"))
+    h += '<button type="button" class="pill" data-a="fnAbrirNovo" title="Criar um funil novo">+</button>';
   w.innerHTML = h;
 }
 ACOES.nnTipo = function(el){
@@ -12438,7 +12455,17 @@ ACOES.novo = function(){
     '</div>');
 };
 ACOES.mais = ACOES.novo;
-ACOES.novoNegocio = function(){ fecharFolha(); abrirNovoNegocio({}); };
+ACOES.novoNegocio = function(){ fecharFolha(); abrirNovoNegocio({ tipo: nnFunilDaTela() }); };
+/* Qual funil o negocio novo herda. Se a pessoa apertou "+ Negocio"
+   olhando o quadro de patrocinio, e patrocinio que ela quer: e o clique
+   mais repetido do dia, e o sistema ja sabe a resposta. Fora do Funil,
+   devolve vazio e o cadastro cai no primeiro da lista. */
+function nnFunilDaTela(){
+  if(ROTA && ROTA.tela === "funil" && typeof fnFunilAtual === "function"){
+    try{ return fnFunilAtual(); }catch(e){ return ""; }
+  }
+  return "";
+}
 ACOES.novoContato = function(){ fecharFolha(); abrirNovoContato({}, null); };
 
 /* =====================================================================
@@ -13554,6 +13581,8 @@ function fnFolha(t){
 }
 
 ACOES.fnNovo = function(){ fnFolha(null); };
+/* Atalho vindo do cadastro, onde a falta de um funil aparece. */
+ACOES.fnAbrirNovo = function(){ fecharFolha(); ir("funis/novo"); };
 ACOES.fnEditar = function(el){
   var t = tipoPorK(el.getAttribute('data-k'));
   if(t) fnFolha(t);
