@@ -522,6 +522,17 @@ table.tb td.r,table.tb th.r{text-align:right;font-variant-numeric:tabular-nums}
 /* ---------- item de atividade nao enviado ---------- */
 .tl-it.pend{opacity:.6}
 .tl-it.pend .tl-t::after{content:' ⏱';font-size:11px;color:var(--warn)}
+
+/* ---------- acoes da linha da fila (tela Hoje) ----------
+   No computador sao botoes compactos: com flex:1 eles esticavam ate a
+   borda e cada linha da fila ficava com 90px de altura, entao a fila de
+   8 itens, que existe justamente pra caber numa tela, obrigava a rolar.
+   No celular voltam a ocupar a linha inteira, porque ali o que manda e o
+   tamanho do alvo pro polegar.                                         */
+.acao-fila{flex:0 0 auto;min-width:104px;justify-content:center}
+@media (max-width:860px){
+  .acao-fila{flex:1 1 0;min-width:0}
+}
 </style>
 </head>
 <body>
@@ -625,10 +636,14 @@ function brl(n){
   return 'R$ ' + v.toLocaleString('pt-BR',{maximumFractionDigits:0});
 }
 // Versao curta pro card do kanban: R$ 42 mil, R$ 1,2 mi
+// O corte do milhao e feito no valor JA ARREDONDADO em milhares, senao
+// R$ 999.999 cai na faixa de "mil", arredonda pra 1000 e a tela escreve
+// "R$ 1000 mil", que nao e como ninguem fala nem le.
 function brlCurto(n){
   var v = Number(n)||0;
-  if(Math.abs(v) >= 1000000) return 'R$ ' + (v/1000000).toLocaleString('pt-BR',{maximumFractionDigits:1}) + ' mi';
-  if(Math.abs(v) >= 10000)   return 'R$ ' + Math.round(v/1000) + ' mil';
+  var mil = Math.round(v/1000);
+  if(Math.abs(mil) >= 1000) return 'R$ ' + (v/1000000).toLocaleString('pt-BR',{maximumFractionDigits:1}) + ' mi';
+  if(Math.abs(v) >= 10000)  return 'R$ ' + mil + ' mil';
   return brl(v);
 }
 function pct(n,casas){
@@ -695,7 +710,12 @@ function dataCurta(iso){
   if(!iso) return '';
   var p = String(iso).slice(0,10).split('-');
   if(p.length !== 3) return String(iso);
-  return Number(p[2]) + ' ' + MESES_CURTO[Number(p[1])-1];
+  var m = MESES_CURTO[Number(p[1])-1];
+  // Mes fora de 1 a 12 (importacao torta, data digitada em outro formato)
+  // escrevia "1 undefined" no cartao. Melhor devolver o texto cru, que
+  // pelo menos deixa a pessoa ver o que esta gravado e consertar.
+  if(!m) return String(iso).slice(0,10);
+  return Number(p[2]) + ' ' + m;
 }
 // Data por extenso com dia da semana, do jeito que a casa escreve:
 // "quinta, 10 de setembro de 2026". Nunca "essa quinta".
@@ -732,11 +752,18 @@ function mesAtual(){ return hojeISO().slice(0,7); }
 function mesBR(ym){
   var p = String(ym||'').split('-');
   if(p.length < 2) return String(ym||'');
-  return MESES_CURTO[Number(p[1])-1] + '/' + String(p[0]).slice(2);
+  var m = MESES_CURTO[Number(p[1])-1];
+  if(!m) return String(ym||'');           // nunca escrever "undefined/26" no painel
+  return m + '/' + String(p[0]).slice(2);
 }
 // "ha 3 dias", "hoje", "em 5 dias". Usado na linha do tempo e nos alertas.
 function quando(iso){
   if(!iso) return '';
+  // Data que nao da pra ler devolvia "hoje", porque diasEntre responde 0
+  // quando nao consegue montar a Date. Ou seja, a fila do dia dizia que
+  // um proximo passo com data estragada era pra hoje. Mentir a favor da
+  // urgencia e pior do que nao dizer nada.
+  if(!dataDe(iso)) return '';
   var d = diasEntre(iso, hojeISO());
   if(d === 0) return 'hoje';
   if(d === 1) return 'ontem';
@@ -761,11 +788,19 @@ function foneBR(s){
   if(d.length === 10) return '(' + d.slice(0,2) + ') ' + d.slice(2,6) + '-' + d.slice(6);
   return s || '';
 }
-// Devolve o link wa.me ou vazio se o numero nao da pra usar.
+/* Devolve o link wa.me ou vazio se o numero nao da pra usar.
+
+   O DDI so pode ser decidido pelo TAMANHO, nunca pelos dois primeiros
+   digitos: 55 tambem e DDD de verdade (Santa Maria e toda a regiao
+   central do Rio Grande do Sul). Olhando so o prefixo, o numero
+   (55) 3333-4444 virava wa.me/5533334444, que e um telefone de 10
+   digitos sem pais nenhum, e o WhatsApp abre em contato inexistente.
+   Ate 11 digitos e numero nacional e leva o 55 na frente; 12 ou 13
+   digitos ja vem com DDI e ficam como estao.                         */
 function linkWhats(fone, texto){
   var d = soDigito(fone);
-  if(d.length < 10) return '';
-  if(d.slice(0,2) !== '55') d = '55' + d;
+  if(d.length < 10 || d.length > 13) return '';   // acima de 13 e sujeira, nao telefone
+  if(d.length <= 11) d = '55' + d;
   return 'https://wa.me/' + d + (texto ? '?text=' + encodeURIComponent(texto) : '');
 }
 
@@ -848,19 +883,20 @@ function esquecer(chaveNome){
    O Firestore compat ja tem cache offline, mas a fila e explicita pra que
    a tela consiga dizer "3 esperando internet" em vez de mentir "salvo".
    --------------------------------------------------------------------- */
-var filaPendente = recuperar('fila', []);
-
-function enfileirar(op){
-  filaPendente.push(op);
-  guardar('fila', filaPendente);
-  atualizaAvisoFila();
+/* A fila de verdade e a OUTBOX, criada em 04-core.js e alimentada por
+   gravar(). Este aviso so LE essa fila. Ele ja teve uma lista propria
+   aqui, que ninguem nunca preenchia, e o resultado era a faixa dizendo
+   sempre zero enquanto tinha registro parado esperando internet: a tela
+   mentia justamente no unico momento em que a pessoa precisa saber. */
+function quantosEsperandoInternet(){
+  return (typeof OUTBOX !== 'undefined' && OUTBOX) ? OUTBOX.length : 0;
 }
 function atualizaAvisoFila(){
   var el = document.getElementById('avisoFila');
   if(!el) return;
-  var n = filaPendente.length;
+  var n = quantosEsperandoInternet();
   el.hidden = n === 0;
-  if(n) el.textContent = n === 1 ? '1 registro esperando internet' : n + ' registros esperando internet';
+  el.textContent = n === 1 ? '1 registro esperando internet' : n + ' registros esperando internet';
 }
 
 /* ============ 03-const ============ */
@@ -872,7 +908,7 @@ function atualizaAvisoFila(){
    negocio no banco e regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.3";
+var VERSAO = "2026-09-11.4";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1258,9 +1294,16 @@ function idxEstagio(n){
   for(var i=0;i<f.length;i++) if(f[i].k === n.estagio) return i;
   return 0;
 }
+/* Estagio que nao pertence ao funil do negocio NAO pode virar o estagio
+   zero. idxEstagio devolve 0 quando nao acha, que e o certo pra ordenar,
+   mas usar esse 0 aqui fazia um negocio de agencia parado num estagio
+   "pt_" aparecer como "Contato", com o teto de 7 dias do Contato, calado.
+   O SPEC (secao 4) pede o contrario: aparecer como estagio desconhecido,
+   pra alguem consertar o dado em vez de acreditar na coluna errada. */
 function estagioDe(n){
-  var f = FUNIL[n.tipo] || [];
-  return f[idxEstagio(n)] || { k:n.estagio, rot:"Estagio desconhecido", p:0, teto:30 };
+  var f = FUNIL[(n && n.tipo)] || [];
+  for(var i=0;i<f.length;i++) if(f[i].k === (n && n.estagio)) return f[i];
+  return { k:(n && n.estagio) || "", rot:"Estagio desconhecido", p:0, teto:30, saida:"" };
 }
 function edicaoDe(k){
   for(var i=0;i<EDICOES.length;i++) if(EDICOES[i].k === k) return EDICOES[i];
@@ -1307,6 +1350,11 @@ function valorOrdem(n){
 /* ---------------------------------------------------------------------
    SEMAFORO
    --------------------------------------------------------------------- */
+// Tolerancia de silencio do funil do negocio. Tipo que nao existe em
+// TOQUE (dado velho, importacao torta) derrubava a tela Hoje inteira num
+// TypeError, e um negocio estragado nao pode levar a fila do dia junto.
+function toqueDe(tipo){ return TOQUE[tipo] || { normal:5, ultimo:3 }; }
+
 function temperatura(n){
   if(!n || n.status !== "aberto") return "fechado";
   if(n.congeladoAte && n.congeladoAte > hojeISO()) return "congelado";
@@ -1314,10 +1362,14 @@ function temperatura(n){
   var venc   = diasVencido(n.proxData);
   var silen  = diasVencido(n.ultimoToqueEm);
   var parado = diasVencido(n.estagioDesde);
-  var limToque = (i === f.length-1) ? TOQUE[n.tipo].ultimo : TOQUE[n.tipo].normal;
-  if(!n.proxData)            return "amarelo";       // sem plano e alerta, nao verde
+  var limToque = (i === f.length-1) ? toqueDe(n.tipo).ultimo : toqueDe(n.tipo).normal;
+  // O vermelho de estagio parado vem ANTES do amarelo de "sem proximo
+  // passo". Na ordem antiga, o negocio sem plano nenhum saia amarelo
+  // mesmo com 40 dias num estagio de teto 7, ou seja, justo o mais
+  // abandonado do funil era o que a tela pintava de mais brando.
   if(venc >= 1)              return "vermelho";
   if(parado > e.teto*1.5)    return "vermelho";
+  if(!n.proxData)            return "amarelo";       // sem plano e alerta, nao verde
   if(venc >= -1)             return "amarelo";       // vence hoje ou amanha
   if(parado > e.teto)        return "amarelo";
   if(silen > limToque)       return "amarelo";
@@ -1331,10 +1383,14 @@ function porQue(n){
     return "congelado ate " + dataBR(n.congeladoAte);
   var f = FUNIL[n.tipo] || [], i = idxEstagio(n), e = f[i] || { teto:30, rot:"" };
   var venc = diasVencido(n.proxData), silen = diasVencido(n.ultimoToqueEm), parado = diasVencido(n.estagioDesde);
-  var limToque = (i === f.length-1) ? TOQUE[n.tipo].ultimo : TOQUE[n.tipo].normal;
-  if(!n.proxData) return "sem proximo passo marcado";
+  var limToque = (i === f.length-1) ? toqueDe(n.tipo).ultimo : toqueDe(n.tipo).normal;
+  // Mesma ordem de temperatura(), senao o semaforo fica vermelho por
+  // estagio parado e a frase embaixo dele fala de outra coisa.
   if(venc >= 1)   return (proxTipoDe(n.proxTipo) ? proxTipoDe(n.proxTipo).rot : "proximo passo")
                         + ", venceu ha " + venc + (venc===1?" dia":" dias");
+  if(parado > e.teto*1.5)
+    return parado + " dias em " + (e.rot || "um estagio que nao e deste funil") + ", o limite e " + e.teto;
+  if(!n.proxData) return "sem proximo passo marcado";
   if(venc === 0)  return (proxTipoDe(n.proxTipo) ? proxTipoDe(n.proxTipo).rot : "proximo passo")
                         + " hoje" + (n.proxHora ? ", " + n.proxHora : "");
   if(venc === -1) return (proxTipoDe(n.proxTipo) ? proxTipoDe(n.proxTipo).rot : "proximo passo") + " amanha";
@@ -1486,9 +1542,13 @@ function gravar(colecao, id, dados){
   // tela nao explica nada. Ja mordeu duas vezes nesta casa: a migracao do
   // conteudo em agosto de 2026, e o acesso de recuperacao em setembro.
   // Barrar aqui transforma um erro do banco num erro nosso, com nome.
-  if(!id || /^__.*__$/.test(String(id))){
+  // A barra entra junto porque o Firestore le "a/b" como caminho de
+  // subcolecao e recusa o documento com outro erro sem nome na tela.
+  if(!id || /^__.*__$/.test(String(id)) || String(id).indexOf("/") > -1){
     var m = !id ? "Tentei gravar sem identificador."
-                : 'O identificador "' + id + '" e reservado pelo banco e nao pode ser usado.';
+                : String(id).indexOf("/") > -1
+                  ? 'O identificador "' + id + '" tem barra, e barra o banco le como caminho.'
+                  : 'O identificador "' + id + '" e reservado pelo banco e nao pode ser usado.';
     console.error(m + " colecao: " + colecao);
     toast(m, "bad");
     return Promise.reject(new Error(m));
@@ -2301,8 +2361,53 @@ function boot(){
         pintarGate();
       }
       atualizaAvisoFila();
+    })
+    /* A PARTIDA NAO PODE FALHAR EM SILENCIO.
+
+       Esta cadeia nao tinha catch. Qualquer excecao dentro dela (uma
+       tela que quebra ao desenhar, um dado velho no cache, o SDK que
+       nao carregou) deixava a promessa rejeitada sem ninguem ouvindo, e
+       o resultado na tela era a pagina de senha parada pra sempre, sem
+       mensagem nenhuma. Quem estivesse do outro lado concluiria que o
+       CRM morreu, e nao teria como saber por que.
+
+       Aqui o erro vira tela: a pessoa ve o motivo, sabe que o registro
+       dela nao se perdeu, e tem um botao pra recarregar.              */
+    .catch(function(e){
+      console.error("a partida do CRM falhou:", e);
+      try{
+        document.getElementById('app').hidden = true;
+        var g = document.getElementById('gate');
+        g.hidden = false;
+        g.innerHTML =
+          '<div class="gate-card">' +
+            '<img src="logo-lime.png" alt="Agencia Lime">' +
+            '<div class="gate-t">Nao consegui abrir</div>' +
+            '<div class="gate-s">Erro na partida</div>' +
+            '<p class="muted2" style="margin-top:18px;line-height:1.55">O CRM travou ao iniciar. ' +
+            'Nada do que voce registrou se perdeu: o que ainda nao subiu continua guardado neste aparelho ' +
+            'e sobe sozinho quando o sistema abrir.</p>' +
+            '<p class="tiny muted" style="margin-top:12px;word-break:break-word">' + esc(String((e && e.message) || e)) + '</p>' +
+            '<div class="gate-f">' +
+              '<button class="btn btn-primary btn-lg btn-block" onclick="location.reload()">Tentar de novo</button>' +
+              '<button class="btn btn-ghost btn-block" data-a="limparCacheEAbrir">Limpar o cache e abrir</button>' +
+            '</div>' +
+            '<div class="gate-n">Se acontecer de novo depois de limpar o cache, o problema nao esta neste aparelho. ' +
+            'Avise o Eric com o texto do erro acima.</div>' +
+          '</div>';
+      }catch(e2){ /* se nem isso desenhar, o console fica com o motivo */ }
     });
 }
+
+/* Saida de emergencia da tela de erro da partida: cache velho e a causa
+   mais comum de quebra na abertura, e limpar resolve sem perder nada que
+   ja subiu. A fila do que NAO subiu e preservada de proposito. */
+ACOES.limparCacheEAbrir = function(){
+  try{
+    esquecer("base"); esquecer("timeline"); esquecer("syncTeto"); esquecer("lidas");
+  }catch(e){}
+  location.reload();
+};
 
 /* ============ 06-hoje ============ */
 /* =====================================================================
@@ -2351,6 +2456,35 @@ function hjTresComVaga(arr){
   return r.slice(0, 2).concat(resto.slice(0, 1));
 }
 
+/* O motivo do balde 4 e do balde 5 nao pode sair de porQue(): porQue responde
+   "por que o semaforo esta nessa cor", e para quem vence amanha ele responde
+   "Ligar amanha". Um item listado como esfriando com a frase "Ligar amanha"
+   embaixo nao diz numero nenhum e nao explica por que esta na fila, que e
+   justamente o que a tela promete. Aqui a frase explica o BALDE. */
+function hjLimToque(n){
+  var f = FUNIL[n.tipo] || [], ix = idxEstagio(n);
+  // toqueDe() e do nucleo e ja tem o padrao pra tipo fora da tabela. Repetir
+  // um padrao proprio aqui fazia a fila cobrar com 7 dias e o semaforo do
+  // mesmo negocio pintar com 5, dois numeros diferentes na mesma linha.
+  var tq = (typeof toqueDe === "function") ? toqueDe(n.tipo) : (TOQUE[n.tipo] || { normal:5, ultimo:3 });
+  return (ix === f.length - 1) ? tq.ultimo : tq.normal;
+}
+function hjMotivoEsfriando(n){
+  var f = FUNIL[n.tipo] || [], ix = idxEstagio(n);
+  // Sem fallback de rotulo a frase saia "o limite em o estagio e 7 dias".
+  var e = f[ix] || { teto:30, rot:"um estagio que nao e deste funil" };
+  var lim = hjLimToque(n);
+  var silen = diasVencido(n.ultimoToqueEm), parado = diasVencido(n.estagioDesde);
+  // Silencio primeiro porque e o que o vendedor resolve hoje, com uma mensagem.
+  if(silen > lim) return silen + " dias sem contato, o limite em " + e.rot + " e " + lim + " dias";
+  return parado + " dias parado em " + e.rot + ", o teto do estagio e " + e.teto + " dias";
+}
+function hjMotivoSemPlano(n){
+  if(!n.criadoEm) return "sem proximo passo marcado, sem data de cadastro no registro";
+  var d = diasVencido(n.criadoEm);
+  return "sem proximo passo marcado, cadastrado ha " + d + (d === 1 ? " dia" : " dias");
+}
+
 function filaDeHoje(){
   var hoje = hojeISO();
   var todos = lista("negocios");
@@ -2381,7 +2515,7 @@ function filaDeHoje(){
   resgate = resgate.slice().sort(hjPorValor).slice(0, 5);
 
   var itens = [], usados = {};
-  function empurrar(arr, balde, teto){
+  function empurrar(arr, balde, teto, motivoFn){
     var postos = 0;
     for(var j = 0; j < arr.length; j++){
       if(itens.length >= 8 || postos >= teto) return;   // teto do balde e teto duro de 8
@@ -2389,7 +2523,7 @@ function filaDeHoje(){
       if(usados[x.id]) continue;
       usados[x.id] = true;
       postos++;
-      itens.push({ n:x, motivo:porQue(x), balde:balde, tarefa:null });
+      itens.push({ n:x, motivo:(motivoFn ? motivoFn(x) : porQue(x)), balde:balde, tarefa:null });
     }
   }
 
@@ -2435,18 +2569,19 @@ function filaDeHoje(){
   var b4 = candidatos.filter(function(x){
     if(!x.proxData || diasVencido(x.proxData) >= 0) return false;
     var f = FUNIL[x.tipo] || [], ix = idxEstagio(x), e = f[ix] || { teto:30 };
-    var limToque = (ix === f.length - 1) ? TOQUE[x.tipo].ultimo : TOQUE[x.tipo].normal;
-    return diasVencido(x.estagioDesde) > e.teto || diasVencido(x.ultimoToqueEm) > limToque;
+    return diasVencido(x.estagioDesde) > e.teto || diasVencido(x.ultimoToqueEm) > hjLimToque(x);
   }).sort(hjPorValor);
-  empurrar(b4, 4, 2);
+  empurrar(b4, 4, 2, hjMotivoEsfriando);
 
   // 5. Sem proximo passo, criado ha mais de 2 dias, teto 2, mais recente
   // primeiro. Os 2 dias de folga existem pra nao cobrar plano de um negocio
   // cadastrado hoje de manha no corredor.
+  // Sem criadoEm (importacao, cadastro de outra versao) diasVencido devolve 0
+  // e o negocio ficava invisivel pra sempre: nao tem plano e ninguem cobra.
   var b5 = candidatos.filter(function(x){
-    return !x.proxData && diasVencido(x.criadoEm) > 2;
+    return !x.proxData && (!x.criadoEm || diasVencido(x.criadoEm) > 2);
   }).sort(hjPorNovo);
-  empurrar(b5, 5, 2);
+  empurrar(b5, 5, 2, hjMotivoSemPlano);
 
   var naFila = 0;
   for(i = 0; i < itens.length; i++) if(itens[i].n && !itens[i].tarefa) naFila++;
@@ -2555,8 +2690,8 @@ function hjFimDoMes(ym){
    pra usar, com o motivo embaixo: botao que some faz a pessoa achar que o
    CRM quebrou. */
 function hjBotaoZap(acao, id, temTel){
-  if(temTel) return '<button class="btn" style="flex:1" data-a="' + acao + '" data-id="' + esc(id) + '">💬 Zap</button>';
-  return '<button class="btn" style="flex:1" disabled>💬 Zap</button>';
+  if(temTel) return '<button class="btn acao-fila" data-a="' + acao + '" data-id="' + esc(id) + '">💬 Zap</button>';
+  return '<button class="btn acao-fila" disabled>💬 Zap</button>';
 }
 
 function hjLinhaNegocio(it){
@@ -2578,7 +2713,7 @@ function hjLinhaNegocio(it){
     </div>
     <div style="display:flex;gap:8px;margin-top:10px">
       ${hjBotaoZap("hjZap", n.id, temTel)}
-      <button class="btn" style="flex:1" data-a="hjRegistro" data-id="${esc(n.id)}">✓ Feito</button>
+      <button class="btn acao-fila" data-a="hjRegistro" data-id="${esc(n.id)}">✓ Feito</button>
     </div>
     ${temTel ? "" : '<div class="tiny" style="color:var(--text3);margin-top:5px">Zap desligado: esse negocio nao tem telefone com DDD cadastrado.</div>'}
   </div>`;
@@ -2604,8 +2739,8 @@ function hjLinhaTarefa(it){
     <div style="display:flex;gap:8px;margin-top:10px">
       ${hjBotaoZap("hjZapTarefa", t.id, temTel)}
       ${bloq
-        ? '<button class="btn" style="flex:1" disabled>✓ Feita</button>'
-        : '<button class="btn" style="flex:1" data-a="hjTarefaFeita" data-id="' + esc(t.id) + '">✓ Feita</button>'}
+        ? '<button class="btn acao-fila" disabled>✓ Feita</button>'
+        : '<button class="btn acao-fila" data-a="hjTarefaFeita" data-id="' + esc(t.id) + '">✓ Feita</button>'}
     </div>
     ${bloq ? '<div class="tiny" style="color:var(--text3);margin-top:5px">' + esc(bloq) + '</div>' : ""}
     ${temTel ? "" : '<div class="tiny" style="color:var(--text3);margin-top:5px">Zap desligado: essa tarefa nao tem telefone com DDD.</div>'}
@@ -2623,8 +2758,9 @@ function hjVitoria(f){
   });
 
   // 1) o negocio mais esquecido, medido em dias sem contato
-  var parado = null, maior = -1;
+  var parado = null, maior = -1, semToque = 0;
   for(var i = 0; i < abertos.length; i++){
+    if(!abertos[i].ultimoToqueEm) semToque++;
     var d = diasVencido(abertos[i].ultimoToqueEm || abertos[i].criadoEm);
     if(d > maior){ maior = d; parado = abertos[i]; }
   }
@@ -2648,7 +2784,10 @@ function hjVitoria(f){
     '<div class="sec-sub">' + sub + '</div>' +
     '<div style="margin-top:14px;display:flex;flex-direction:column;gap:12px">';
 
-  if(parado && maior >= 0){
+  // Exige pelo menos 1 dia: com tudo tocado hoje a tela escrevia "O mais
+  // esquecido, 0 dias sem contato", que e uma cobranca inventada em cima de
+  // um dia em que o vendedor fez tudo certo.
+  if(parado && maior >= 1){
     var temTel = !!(parado.contatoTel && soDigito(parado.contatoTel).length >= 10);
     h += '<div style="border-left:3px solid var(--lime);padding-left:12px">' +
       '<div class="h3" style="color:var(--lime)">O mais esquecido</div>' +
@@ -2656,8 +2795,25 @@ function hjVitoria(f){
       '<div class="small muted2">' + maior + (maior === 1 ? " dia" : " dias") + ' sem contato, ' + esc(hjValor(parado)) + '</div>' +
       '<div style="display:flex;gap:8px;margin-top:9px">' +
         hjBotaoZap("hjZap", parado.id, temTel) +
-        '<button class="btn" style="flex:1" data-a="hjRegistro" data-id="' + esc(parado.id) + '">✓ Feito</button>' +
+        '<button class="btn acao-fila" data-a="hjRegistro" data-id="' + esc(parado.id) + '">✓ Feito</button>' +
       '</div></div>';
+  } else {
+    /* Nunca afirmar toque que nao existe. No primeiro dia de uso o vendedor
+       cadastra a carteira inteira sem nenhum toque registrado, e a tela dizia
+       "foram tocados hoje. Nenhum esta esquecido." em cima de negocio que
+       ninguem chamou ainda. Quem nao tem toque no registro e contado a parte. */
+    var fraseEsq;
+    if(!abertos.length) fraseEsq = "Nenhum negocio aberto agora.";
+    else if(semToque === abertos.length)
+      fraseEsq = (abertos.length === 1 ? "O negocio aberto ainda nao tem" : "Os " + abertos.length + " negocios abertos ainda nao tem") +
+                 " nenhum toque registrado. Assim que voce registrar o primeiro, a conta de dias comeca aqui.";
+    else
+      fraseEsq = (abertos.length === 1 ? "O negocio aberto foi tocado" : "Os " + abertos.length + " negocios abertos foram tocados") +
+                 " hoje. Nenhum esta esquecido." +
+                 (semToque ? " " + semToque + (semToque === 1 ? " ainda esta" : " ainda estao") + " sem toque registrado." : "");
+    h += '<div style="border-left:3px solid var(--border2);padding-left:12px">' +
+      '<div class="h3">O mais esquecido</div>' +
+      '<div class="small muted">' + fraseEsq + '</div></div>';
   }
 
   if(frio){
@@ -2667,7 +2823,7 @@ function hjVitoria(f){
       '<div class="small muted2">' + (frio.ganhos || 0) + ' negocios ganhos por indicacao dele, ' +
         diasVencido(frio.ultimaEm) + ' dias sem indicar</div>' +
       '<div style="display:flex;gap:8px;margin-top:9px">' +
-        '<button class="btn" style="flex:1" data-a="hjPedirIndicacao" data-id="' + esc(frio.id || "") + '">💬 Pedir indicacao</button>' +
+        '<button class="btn acao-fila" data-a="hjPedirIndicacao" data-id="' + esc(frio.id || "") + '">💬 Pedir indicacao</button>' +
       '</div></div>';
   } else {
     h += '<div style="border-left:3px solid var(--border2);padding-left:12px">' +
@@ -2676,7 +2832,17 @@ function hjVitoria(f){
       'Quando algum passar, ele aparece aqui com o botao de mensagem pronto.</div></div>';
   }
 
-  h += '</div></div>';
+  h += '</div>';
+  /* Os 2 dias de folga do balde 5 escondem, no primeiro dia de uso, a carteira
+     inteira cadastrada de manha sem proximo passo. A fila fica em 0, o que e
+     certo, mas a tela precisa dizer que esses negocios existem. */
+  if(f && f.semData > 0){
+    h += '<div class="tiny muted" style="margin-top:12px">' +
+      f.semData + (f.semData === 1 ? " negocio aberto esta" : " negocios abertos estao") +
+      ' sem proximo passo marcado. Cadastrado ha 2 dias ou menos ainda nao e cobrado aqui.' +
+      ' <button class="btn btn-sm btn-ghost" data-a="ir" data-r="negocios">Ver os negocios</button></div>';
+  }
+  h += '</div>';
   return h;
 }
 
@@ -2937,7 +3103,7 @@ ACOES.hjResgate = function(){
       '<div class="tiny muted" style="margin-top:3px">' + esc(hjUltimoToque(n)) + '</div>' +
       '<div style="display:flex;gap:8px;margin-top:10px">' +
         hjBotaoZap("hjZap", n.id, temTel) +
-        '<button class="btn" style="flex:1" data-a="hjRegistro" data-id="' + esc(n.id) + '">✓ Feito</button>' +
+        '<button class="btn acao-fila" data-a="hjRegistro" data-id="' + esc(n.id) + '">✓ Feito</button>' +
       '</div>' +
     '</div>';
   }
@@ -2983,12 +3149,22 @@ function hjResumoTexto(){
 
   var m = hjNumerosDoMes();
   if(m){
-    L.push("Fechado no mes: " + brl(m.fechado || 0));
-    if(m.meta > 0){
+    /* A meta cadastrada e de MRR NOVO, em R$ por mes. Comparar com o fechado,
+       que soma valor total de contrato com cota de patrocinio, dava "1008%
+       atingido" numa base com R$ 4.200/mes de MRR novo contra meta de
+       R$ 5.000/mes. Cada numero aqui sai com a unidade dele, e fee de agencia
+       nunca vira o mesmo numero que cota de patrocinio. */
+    var pT = m.porTipo || {}, pAg = pT.agencia || {}, pPt = pT.patrocinio || {};
+    var nFech = (pAg.nFechado || 0) + (pPt.nFechado || 0);
+    L.push("Fechado no mes: " + nFech + (nFech === 1 ? " negocio" : " negocios"));
+    L.push("Agencia: " + brl(pAg.fechado || 0) + " em contrato, " + brl(m.novoMrr || 0) + "/mes de MRR novo");
+    L.push("Patrocinio: " + brl(pPt.fechado || 0) + " em cota");
+    if(m.temMeta){
       // Nunca NaN%: sem meta cadastrada a linha diz que nao tem meta.
-      L.push("Meta do mes: " + brl(m.meta) + " (" + Math.round(((m.fechado || 0) / m.meta) * 100) + "% atingido)");
+      L.push("Meta de MRR novo: " + brl(m.meta) + "/mes (" + m.pctMeta + "% atingido" +
+             (m.faltam > 0 ? ", faltam " + brl(m.faltam) + "/mes" : ", meta batida") + ")");
     } else {
-      L.push("Meta do mes: nao definida");
+      L.push("Meta de MRR novo: nao definida");
     }
     var alta = (m.altaChance || []).slice();
     var somaAlta = 0, i;
@@ -3113,6 +3289,15 @@ var FN_ESTAGIO = recuperar("funilEstagio", {});
    --------------------------------------------------------------------- */
 function fnPlural(n, sing, plur){ return n + " " + (Math.abs(n) === 1 ? sing : plur); }
 
+/* Indice do estagio DENTRO do funil do negocio, ou -1 quando a chave nao
+   pertence a esse funil. idxEstagio() devolve 0 nesse caso, que serve pra
+   ordenar mas nao serve pra decidir se o dado esta torto. */
+function fnIdxNoFunil(n){
+  var f = FUNIL[(n && n.tipo)] || [];
+  for(var i=0;i<f.length;i++) if(f[i].k === (n && n.estagio)) return i;
+  return -1;
+}
+
 function fnFunilAtual(){
   var k = ROTA.id;
   if(k !== "agencia" && k !== "patrocinio") k = recuperar("funilAberto", "agencia");
@@ -3216,7 +3401,11 @@ function cardNegocio(n, ctx){
   var s = fnSelo(n);
   var congelado = n.congeladoAte && n.congeladoAte > hojeISO();
   var e = estagioDe(n);
-  var foraDoFunil = n.estagio !== e.k;      // estagio de outro funil, nao pode sumir calado
+  // Estagio de outro funil nao pode sumir calado. A conferencia e pela
+  // lista de estagios do tipo, e nao comparando com estagioDe(n).k: o
+  // nucleo devolve um estagio de mentira com a chave ORIGINAL dentro
+  // quando nao reconhece, entao comparar as chaves daria sempre igual.
+  var foraDoFunil = fnIdxNoFunil(n) < 0;
   var heroi = fnValorHeroi(n);
   var apoio = fnApoio(n);
   var permuta = (n.tipo === "patrocinio" && n.pt && n.pt.permuta) ? n.pt.permuta : 0;
@@ -3306,12 +3495,16 @@ function fnFechadosMes(){
 }
 function fnFaixaTotais(k){
   var a = fnTotais("agencia"), p = fnTotais("patrocinio"), fe = fnFechadosMes();
+  // Funil com negocio mas sem nenhum valor preenchido mostra "valor a
+  // definir", nunca R$ 0: "R$ 0 em 5 negocios" parece defeito de conta e
+  // faz duvidar de todo o resto da tela. Com zero negocios, R$ 0 e a
+  // verdade e fica.
   function bloco(kk, t, rot, sub){
     var on = k === kk;
     return `<button class="kpi${on ? " accent" : ""}" data-a="funilTrocar" data-k="${kk}"
               style="text-align:left;width:100%;${on ? "" : "opacity:.7"}">
       <div class="kpi-l">${rot}</div>
-      <div class="kpi-v${on ? " lime" : ""}">${esc(brl(t.total))}</div>
+      <div class="kpi-v${on ? " lime" : ""}">${t.n && !t.total ? "valor a definir" : esc(brl(t.total))}</div>
       <div class="kpi-s">${sub}</div>
     </button>`;
   }
@@ -3559,7 +3752,16 @@ function abrirFolhaEstagio(id){
   var f = FUNIL[n.tipo] || [];
   var iAtual = idxEstagio(n);
   var parado = diasVencido(n.estagioDesde || n.criadoEm);
-  var motivo = motivoBloqueio("crm_negocios");
+  // Negocio fechado nao troca de estagio. O estagio de um negocio fechado
+  // e a resposta pra "onde o funil vaza", e trocar depois de fechado
+  // apaga essa resposta sem deixar rastro. O stepper da tela do negocio
+  // continua clicavel quando o negocio esta fechado, entao a guarda
+  // precisa morar aqui, e nao so em quem chama.
+  var fechado = n.status !== "aberto";
+  var motivo = fechado
+    ? ("Negocio " + (n.status === "ganho" ? "ganho" : n.status === "perdido" ? "perdido" : "encerrado") +
+       " nao muda de estagio. O estagio em que ele fechou e o que explica onde o funil vaza.")
+    : motivoBloqueio("crm_negocios");
 
   var linhas = "";
   for(var i=0;i<f.length;i++){
@@ -3623,7 +3825,14 @@ function fnPasso2(id, novoK){
   for(var i=0;i<f.length;i++) if(f[i].k === novoK) iNovo = i;
   var eAtual = f[iAtual] || { rot:"Estagio desconhecido" };
   var eNovo  = f[iNovo]  || { rot:"" };
-  var motivo = motivoBloqueio("crm_negocios");
+  // A mesma guarda da primeira folha, de novo aqui: o passo 2 tem botao
+  // Salvar proprio, e sem a guarda ele fica habilitado num negocio ja
+  // fechado, prometendo uma acao que o gravar vai recusar (invariante 12
+  // pede o botao visivel e DESABILITADO, com o motivo escrito).
+  var motivo = n.status !== "aberto"
+    ? ("Negocio " + (n.status === "ganho" ? "ganho" : n.status === "perdido" ? "perdido" : "encerrado") +
+       " nao muda de estagio. O estagio em que ele fechou e o que explica onde o funil vaza.")
+    : motivoBloqueio("crm_negocios");
 
   // A sugestao de proximo passo tem que ser a do estagio de DESTINO, nao
   // a do atual: quem entra em Proposta cobra resposta, nao envia de novo.
@@ -3637,7 +3846,9 @@ function fnPasso2(id, novoK){
   simulado.proxTipo = ""; simulado.proxData = "";
   simulado.proxTexto = ""; simulado.proxHora = "";
 
-  var corpo = `<form class="form" data-a="funilSalvarEstagio" data-id="${esc(n.id)}" data-k="${esc(novoK)}">
+  // Sem o data-a no form, o Enter no campo de data tambem para de
+  // disparar o salvar bloqueado: o submit e delegado igual ao clique.
+  var corpo = `<form class="form" ${motivo ? "" : `data-a="funilSalvarEstagio"`} data-id="${esc(n.id)}" data-k="${esc(novoK)}">
     <div class="card" style="padding:12px 14px;background:var(--card2)">
       <div class="tiny muted">${esc(n.empresa || "")}</div>
       <div style="font-family:var(--disp);font-size:17px;font-weight:800;letter-spacing:.4px;margin-top:2px">
@@ -3734,20 +3945,52 @@ ACOES.funilSalvarEstagio = function(el){
   var motivo = motivoBloqueio("crm_negocios");
   if(motivo){ toast(motivo, "bad"); return; }
 
-  var f = FUNIL[n.tipo] || [], iNovo = 0, i;
+  // A mesma guarda da folha, de novo na hora de gravar (regra 11 da secao
+  // 4.4 manda checar nos dois momentos): a folha pode ter sido aberta
+  // antes de o negocio fechar em outra aba.
+  if(n.status !== "aberto"){
+    ruim("Negocio ja fechado nao muda de estagio. O estagio em que ele fechou e o que explica onde o funil vaza.");
+    return;
+  }
+
+  var f = FUNIL[n.tipo] || [], iNovo = -1, i;
   for(i=0;i<f.length;i++) if(f[i].k === novoK) iNovo = i;
+  // Estagio que nao existe no funil DESTE negocio nao entra no banco. Sem
+  // isso um data-k errado gravaria "pt_contrato" num negocio de agencia,
+  // que depois cai na primeira coluna com o selo de estagio fora do funil
+  // e ninguem sabe de onde veio.
+  if(iNovo < 0){
+    ruim("Esse estagio nao existe no funil de " + (n.tipo === "agencia" ? "agencia" : "patrocinio") + ".");
+    return;
+  }
   var eNovo = f[iNovo] || { rot:"" };
   var eAtual = estagioDe(n);
 
+  // Segundo toque no Salvar. No 4G do estacionamento a folha demora a
+  // fechar e o dedo bate de novo: a folha nunca oferece o estagio de
+  // agora (ele e uma caixa, nao um botao), entao chegar aqui com o
+  // estagio ja igual so acontece por toque repetido ou folha velha.
+  // Sem esta guarda o segundo toque regrava estagioDesde com hoje, o que
+  // zera o contador de dias parado, e deixa uma linha "De Negociacao
+  // para Negociacao" na linha do tempo, que E o log da casa.
+  if(n.estagio === novoK){
+    ruim("Esse negocio ja esta em " + (eNovo.rot || "esse estagio") + ".");
+    return;
+  }
+
+  // maiorEstagio e INDICE numerico. Valor legado nao numerico (a chave do
+  // estagio, por exemplo) viraria NaN no Math.max e o NaN iria pro banco.
+  var maiorAntes = Number(n.maiorEstagio);
+  if(!isFinite(maiorAntes)) maiorAntes = 0;
   var dados = {
     estagio: novoK,
     estagioDesde: hojeISO(),
-    maiorEstagio: Math.max(Number(n.maiorEstagio || 0), iNovo)
+    maiorEstagio: Math.max(maiorAntes, iNovo)
   };
   var antes = {
     estagio: n.estagio || "",
     estagioDesde: n.estagioDesde || hojeISO(),
-    maiorEstagio: Number(n.maiorEstagio || 0),
+    maiorEstagio: maiorAntes,
     proxTipo: n.proxTipo || "",
     proxData: n.proxData || "",
     proxTexto: n.proxTexto || "",
@@ -4222,9 +4465,21 @@ function ngLerDinheiro(s){
   return Math.round(lerValor(t));
 }
 // Valor do negocio em uma linha, com a unidade que cada funil usa.
+/* "valor a definir" e nao "R$ 0".
+
+   Negocio recem-cadastrado nasce sem valor de proposito (secao 6.7: forcar
+   valor no dia 1 gera R$ 1.000 chutado que envenena a previsao), e esse e
+   justamente o estado da indicacao fresca, o lead mais quente da casa.
+   Escrever "R$ 0" nele diz que o negocio vale zero, o que e mentira e o
+   manda pro fim de qualquer leitura de olho. As outras telas ja falavam
+   "valor a definir"; a lista era a unica que destoava.                  */
 function ngValorTxt(n){
-  if(n.tipo === "agencia") return brl(mrrDe(n)) + "/mes";
-  return brl((n.pt && n.pt.valor) || 0);
+  if(n.tipo === "agencia"){
+    var m = mrrDe(n);
+    return m > 0 ? brl(m) + "/mes" : "valor a definir";
+  }
+  var v = (n.pt && n.pt.valor) || 0;
+  return v > 0 ? brl(v) : "valor a definir";
 }
 
 /* ---------------------------------------------------------------------
@@ -4283,7 +4538,11 @@ function blocoProxPasso(pref, n, ligadoPadrao){
   var lig  = bloq ? false : (ligadoPadrao !== false);
   var tipo = (n && n.proxTipo) || NG_SUGESTAO[(n && n.estagio) || ""] || "ligar";
   var pt   = proxTipoDe(tipo) || PROX_TIPOS[0];
-  var data = (n && n.proxData) || (pt.dias ? ngDiasUteis(hojeISO(), pt.dias) : "");
+  var data = (n && n.proxData) || "";
+  // Num negocio atrasado a data gravada ja venceu. Devolver ela no campo
+  // faz o vendedor salvar o mesmo atraso de novo sem perceber, e o
+  // negocio nunca sai do balde de vencidos.
+  if(!data || data < hojeISO()) data = pt.dias ? ngDiasUteis(hojeISO(), pt.dias) : hojeISO();
   var pares = [];
   for(var i=0;i<PROX_TIPOS.length;i++){
     // Cobrar aprovacao interna so existe em patrocinio: em agencia nao ha
@@ -4309,7 +4568,7 @@ function blocoProxPasso(pref, n, ligadoPadrao){
         '<button type="button" class="pill" data-a="ngChipData" data-pref="' + pref + '" data-k="1sem"' + d + '>+1 semana</button>' +
         '<button type="button" class="pill" data-a="ngChipData" data-pref="' + pref + '" data-k="15d"' + d + '>+15 dias</button>' +
         '<input class="inp" type="date" id="' + pref + 'data" value="' + esc(data) + '"' + d +
-          ' style="width:auto;flex:1;min-width:148px">' +
+          ' min="' + esc(hojeISO()) + '" style="width:auto;flex:1;min-width:148px">' +
       '</div>' +
       '<div id="' + pref + 'horaBox"' + (pt.hora ? '' : ' hidden') + '>' +
         '<div class="fld"><label>Hora da reuniao</label>' +
@@ -4346,6 +4605,13 @@ function lerProxPasso(pref){
 
   if(!r.proxTipo){ r.ok = false; r.erro = "Escolha o que vem depois."; }
   else if(!r.proxData){ r.ok = false; r.erro = "Escolha a data do proximo passo."; }
+  // Passo marcado no passado nasce vencido: o negocio volta vermelho no
+  // mesmo segundo e cai no balde de atrasado amanha de novo. Hoje vale,
+  // porque ligar mais tarde hoje e um passo legitimo.
+  else if(r.proxData < hojeISO()){
+    r.ok = false;
+    r.erro = "A data do proximo passo esta no passado. Escolha de hoje (" + dataBR(hojeISO()) + ") em diante.";
+  }
   var e = document.getElementById(pref + "err");
   if(e) e.textContent = r.ok ? "" : r.erro;
   return r;
@@ -4531,6 +4797,12 @@ function ngFormRegistro(n, pref, naFolha){
      desliga o toggle, e ai nada de proximo passo e gravado. */
   var semProx = semProxPasso(n);
 
+  /* Negocio fechado nao volta pra fila. Fechar como ganho ou perdido APAGA
+     o proximo passo de proposito, e deixar a caixinha ligada aqui fazia o
+     primeiro registro depois do fechamento gravar proxTipo e proxData de
+     novo num negocio que ninguem mais vai cobrar. */
+  var aberto = n.status === "aberto";
+
   return '' +
   '<div class="card' + (naFolha ? '' : ' card-lime') + '"' + (naFolha ? ' style="padding:0;border:0;background:none"' : '') + '>' +
     (naFolha ? '' : '<div class="card-head"><div class="sec-title">Registrar</div>' +
@@ -4545,7 +4817,9 @@ function ngFormRegistro(n, pref, naFolha){
       '<div class="fld" style="max-width:220px"><label>Aconteceu em</label>' +
         // Nunca no futuro: o que vai acontecer nao e atividade, e o proximo passo.
         '<input class="inp" type="date" id="' + pref + 'quando" value="' + hojeISO() + '" max="' + hojeISO() + '"></div>' +
-      blocoProxPasso(pref, semProx, true) +
+      blocoProxPasso(pref, semProx, aberto) +
+      (aberto ? '' : '<div class="tiny" style="color:var(--text3)">Este negocio esta ' + esc(n.status) +
+        '. Marcar proximo passo aqui nao devolve ele para a fila, entao a caixinha vem desligada.</div>') +
       '<button class="btn btn-primary btn-lg btn-block" type="submit">Salvar</button>' +
     '</form>' +
   '</div>';
@@ -4728,10 +5002,19 @@ TELAS.negocios = function(){
       campo + '" data-k="' + k + '">' + esc(rot) + '</button>';
   };
 
+  // Invariante 12: acao sem permissao fica visivel e desabilitada, com o
+  // motivo escrito. O gestor que clica em Novo negocio e nao entende por
+  // que nada acontece e o mesmo gestor que diz que o CRM quebrou.
+  var bloqNovo = motivoBloqueio("crm_negocios");
+
   var h = '<div class="card-head" style="margin:0">' +
       '<div><div class="sec-title">Negocios</div>' +
         '<div class="sec-sub">' + arr.length + ' de ' + todos.length + ' negocios na lista</div></div>' +
-      '<button class="btn btn-primary btn-lg" data-a="ngNovo">+ Novo negocio</button>' +
+      '<div>' +
+        '<button class="btn btn-primary btn-lg" data-a="ngNovo"' + (bloqNovo ? ' disabled' : '') +
+          '>+ Novo negocio</button>' +
+        (bloqNovo ? '<div class="tiny" style="color:var(--text3);margin-top:6px">' + esc(bloqNovo) + '</div>' : '') +
+      '</div>' +
     '</div>';
 
   h += '<div class="pills">' +
@@ -4760,7 +5043,10 @@ TELAS.negocios = function(){
     if(!todos.length){
       h += '<div class="empty"><div class="ei">💼</div><div class="et">Nenhum negocio cadastrado</div>' +
         '<div class="ex">Comece pelos que estao abertos agora. Cliente antigo e negocio perdido entram quando forem tocados, nao antes.</div>' +
-        '<button class="btn btn-primary" data-a="ngNovo">Cadastrar o primeiro</button></div>';
+        '<button class="btn btn-primary" data-a="ngNovo"' + (bloqNovo ? ' disabled' : '') +
+          '>Cadastrar o primeiro</button>' +
+        (bloqNovo ? '<div class="tiny" style="color:var(--text3);margin-top:7px">' + esc(bloqNovo) + '</div>' : '') +
+      '</div>';
     } else {
       h += '<div class="empty"><div class="ei">⌕</div><div class="et">Nenhum negocio com esse filtro</div>' +
         '<div class="ex">Existem ' + todos.length + ' negocios cadastrados, nenhum deles casa com a combinacao escolhida aqui em cima.</div>' +
@@ -4781,12 +5067,18 @@ TELAS.negocios = function(){
         '<div class="cel-sub">' + esc(ngRotTipo(n.tipo)) + '</div></td>' +
       '<td><span class="tag">' + esc(e.rot) + '</span>' +
         '<div class="cel-sub">' + diasVencido(n.estagioDesde) + ' dias aqui</div></td>' +
+      // A segunda linha so aparece quando existe contrato pra mostrar.
+      // "R$ 0 no contrato" embaixo de "valor a definir" era a mesma
+      // mentira escrita duas vezes.
       '<td class="r"><b>' + esc(ngValorTxt(n)) + '</b>' +
-        (n.tipo === "agencia" ? '<div class="cel-sub">' + esc(brl(valorRefDe(n))) + ' no contrato</div>' : '') + '</td>' +
+        (n.tipo === "agencia" && valorRefDe(n) > 0
+          ? '<div class="cel-sub">' + esc(brl(valorRefDe(n))) + ' no contrato</div>' : '') + '</td>' +
       '<td class="r">' + (n.prevFechamento ? esc(dataCurta(n.prevFechamento)) : '<span class="muted">sem data</span>') +
         (n.prevEstimada ? '<div class="cel-sub">estimada</div>' : '') + '</td>' +
       '<td><span class="dot" style="background:' + ngCorTemp(t) + '"></span>' +
-        '<div class="cel-sub">' + esc(n.status === "aberto" ? porQue(n) : ("fechado em " + dataBR(n.fechadoEm || n.encerradoEm))) + '</div></td>' +
+        '<div class="cel-sub">' + esc(n.status === "aberto" ? porQue(n)
+            : ((n.fechadoEm || n.encerradoEm) ? "fechado em " + dataBR(n.fechadoEm || n.encerradoEm)
+                                              : "fechado, sem data registrada")) + '</div></td>' +
       '<td><div class="cel-sub">' + esc(n.ultimoToqueEm ? quando(n.ultimoToqueEm) : "nunca") + '</div>' +
         '<div class="truncate cel-sub" style="max-width:220px;color:var(--text2)">' + esc(n.ultimoToqueTxt || "") + '</div></td>' +
     '</tr>';
@@ -4843,15 +5135,26 @@ function ngBlocoTopo(n){
     var ed = edicaoDe(n.pt.edicao);
     if(ed) tags += ' <span class="tag tag-purple">' + esc(ed.rot) + '</span>';
   }
-  if(n.status === "ganho")      tags += ' <span class="tag tag-green">Ganho em ' + esc(dataBR(n.fechadoEm)) + '</span>';
-  if(n.status === "perdido")    tags += ' <span class="tag tag-red">Perdido, ' + esc((motivoPerdaDe(n.motivoPerda)||{rot:""}).rot) + '</span>';
-  if(n.status === "encerrado")  tags += ' <span class="tag">Encerrado em ' + esc(dataBR(n.encerradoEm)) + '</span>';
+  // Dado antigo pode chegar sem a data ou sem o motivo. Escrever "Ganho em"
+  // e parar ali, ou "Perdido," e parar ali, e pior que nao escrever nada:
+  // parece campo quebrado e nao diz o que aconteceu.
+  var motPerda = (motivoPerdaDe(n.motivoPerda) || { rot:"" }).rot;
+  if(n.status === "ganho")      tags += ' <span class="tag tag-green">' +
+    (n.fechadoEm ? 'Ganho em ' + esc(dataBR(n.fechadoEm)) : 'Ganho, sem data de fechamento') + '</span>';
+  if(n.status === "perdido")    tags += ' <span class="tag tag-red">' +
+    (motPerda ? 'Perdido, ' + esc(motPerda) : 'Perdido, sem motivo registrado') + '</span>';
+  if(n.status === "encerrado")  tags += ' <span class="tag">' +
+    (n.encerradoEm ? 'Encerrado em ' + esc(dataBR(n.encerradoEm)) : 'Encerrado, sem data') + '</span>';
   if(congelado)                 tags += ' <span class="tag tag-blue">Congelado ate ' + esc(dataBR(n.congeladoAte)) + '</span>';
   if(PENDENTES[n.id])           tags += ' <span class="tag tag-warn">Nao enviado ainda</span>';
 
   /* Valor heroi. Agencia mostra R$/mes porque e assim que se negocia fee,
      e o contrato inteiro vai embaixo em cinza. */
   var heroi = ngValorTxt(n), sub;
+  // R$ 0 gigante em verde nao e o valor do negocio, e a ausencia dele. O
+  // SPEC (secao 4.1) pede valor opcional ate a proposta, e dizer "valor a
+  // definir" e a unica leitura honesta enquanto ninguem digitou nada.
+  var semValor = n.status === "aberto" && valorRefDe(n) <= 0;
   if(n.tipo === "agencia"){
     var meses = (n.ag && n.ag.meses) || 0;
     sub = brl(valorRefDe(n)) + (meses ? " em " + meses + " meses" : " em 12 meses (contrato indeterminado, contado como 12)");
@@ -4859,7 +5162,22 @@ function ngBlocoTopo(n){
     sub = ((n.pt && n.pt.cota) ? "Cota " + n.pt.cota : "Cota nao definida");
     if(n.pt && n.pt.permuta > 0) sub += " · mais " + brl(n.pt.permuta) + " em permuta, que nunca soma com o dinheiro";
   }
+  if(semValor){
+    heroi = "valor a definir";
+    sub = n.tipo === "agencia" ? "o fee mensal em R$ ainda nao foi preenchido"
+                               : "o valor da cota em R$ ainda nao foi preenchido";
+  }
   var ponderado = Math.round(valorRefDe(n) * e.p);
+  // Chance do estagio so faz sentido em negocio aberto: escrever "85% de
+  // chance" embaixo de um negocio ja ganho e a tela mentindo por descuido.
+  var linhaChance = n.status !== "aberto"
+    ? '<div class="small muted2" style="margin-top:4px">Negocio ' + esc(n.status) +
+        ', a chance do estagio nao vale mais para ele</div>'
+    : (semValor
+        ? '<div class="small muted2" style="margin-top:4px">' + pct(e.p*100) +
+            ' de chance no estagio, e sem valor ele entra na previsao como R$ 0</div>'
+        : '<div class="small muted2" style="margin-top:4px">' + pct(e.p*100) + ' de chance no estagio, ' +
+            esc(brl(ponderado)) + ' ponderado</div>');
 
   /* "pediu 220.000, esta em 180.000". E o numero que o dono quer ver
      antes de aprovar mais um desconto. */
@@ -4905,18 +5223,29 @@ function ngBlocoTopo(n){
 
     '<div class="num" style="font-size:38px;color:var(--lime)">' + esc(heroi) + '</div>' +
     '<div class="tiny muted" style="margin-top:5px">' + esc(sub) + '</div>' +
-    '<div class="small muted2" style="margin-top:4px">' + pct(e.p*100) + ' de chance no estagio, ' +
-      esc(brl(ponderado)) + ' ponderado</div>' +
+    linhaChance +
     desconto +
 
     '<div style="margin-top:2px">' +
       // width:100% em linha porque botao tem largura de conteudo mesmo com
       // display:flex, e sem isso o stepper encolhe pro tamanho das bolinhas.
-      '<button class="step" data-a="ngEstagio" data-id="' + esc(n.id) + '"' + (bloq?' disabled':'') +
+      /* Em negocio fechado o stepper vira so desenho.
+         Ele so ficava desabilitado por PERMISSAO, entao num negocio
+         ganho, perdido ou encerrado continuava clicavel e convidava a
+         trocar o estagio. A folha ja recusa a gravacao, mas um botao que
+         convida pra uma acao que nunca acontece e defeito por si so: em
+         negocio fechado o estagio e o registro de ONDE ele morreu, e
+         essa e a unica informacao que explica onde o funil vaza.       */
+      '<button class="step" data-a="ngEstagio" data-id="' + esc(n.id) + '"' +
+        ((bloq || n.status !== "aberto") ? ' disabled' : '') +
         ' style="width:100%;text-align:left" aria-label="Trocar de estagio">' + dots + '</button>' +
       '<div class="step-rot">' +
         '<b>' + esc(e.rot) + '</b>, ha ' + diasEstagio + (diasEstagio===1?' dia':' dias') +
         '<span class="muted"> (o teto deste estagio e ' + e.teto + ' dias)</span></div>' +
+      (n.status !== "aberto"
+        ? '<div class="tiny" style="color:var(--text3)">Negocio fechado: o estagio fica congelado aqui de proposito, ' +
+          'porque e ele que diz onde o negocio parou.</div>'
+        : (bloq ? '<div class="tiny" style="color:var(--text3)">' + esc(bloq) + '</div>' : '')) +
       (n.status === "aberto"
         ? '<div class="tiny muted">Saida: ' + esc(e.saida || "") + '</div>'
         : '<div class="tiny muted">Estava aqui quando fechou. E a unica informacao que explica onde o funil vaza.</div>') +
@@ -5274,7 +5603,8 @@ ACOES.ngObs = function(el){
     '<button class="btn btn-primary" type="submit" form="ngF">Salvar</button>');
 };
 ACOES.ngSalvarObs = function(f){
-  var id = f.getAttribute('data-id');
+  var id = f.getAttribute('data-id'), n = achar("negocios", id);
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var txt = String((document.getElementById('ngObsTxt')||{}).value || "").slice(0,1000);
   fecharFolha();
   gravar("crm_negocios", id, { obs:txt }).then(function(){ toast("Observacao salva", "ok"); });
@@ -5295,7 +5625,8 @@ ACOES.ngLinkProp = function(el){
     '<button class="btn btn-primary" type="submit" form="ngF">Salvar</button>');
 };
 ACOES.ngSalvarLink = function(f){
-  var id = f.getAttribute('data-id');
+  var id = f.getAttribute('data-id'), n = achar("negocios", id);
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var v = String((document.getElementById('ngLinkTxt')||{}).value || "").trim().slice(0,300);
   if(v && !ngLinkSeguro(v)){
     document.getElementById('ngErr').textContent = "O endereco precisa comecar com https:// ou http://";
@@ -5327,8 +5658,19 @@ ACOES.ngRemarcarPrev = function(el){
 };
 ACOES.ngSalvarPrev = function(f){
   var id = f.getAttribute('data-id'), n = achar("negocios", id);
+  // O negocio pode ter sido arquivado em outro aparelho enquanto a folha
+  // estava aberta. Sem esta guarda o formulario morre calado e o botao
+  // Salvar vira um botao que nao faz nada.
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var v = (document.getElementById('ngPrev')||{}).value || "";
-  if(!v){ document.getElementById('ngErr').textContent = "Escolha a data."; return; }
+  var err = document.getElementById('ngErr');
+  if(!v){ err.textContent = "Escolha a data."; return; }
+  // Previsao no passado e negocio que ja devia ter fechado e nao fechou.
+  // Gravar isso enche o mes de hoje de numero que nunca vai acontecer.
+  if(v < hojeISO()){
+    err.textContent = "A previsao nao pode ser antes de hoje (" + dataBR(hojeISO()) + ").";
+    return;
+  }
   var up = { prevFechamento:v, prevEstimada:false };
   if(n.prevFechamento && n.prevFechamento !== v) up.vezesRemarcouPrev = (n.vezesRemarcouPrev||0) + 1;
   fecharFolha();
@@ -5359,7 +5701,8 @@ ACOES.ngAdiar = function(el){
           '<button type="button" class="pill" data-a="ngChipData" data-pref="ad" data-k="2d">+2 dias</button>' +
           '<button type="button" class="pill" data-a="ngChipData" data-pref="ad" data-k="1sem">+1 semana</button>' +
           '<button type="button" class="pill" data-a="ngChipData" data-pref="ad" data-k="15d">+15 dias</button>' +
-          '<input class="inp" type="date" id="addata" value="' + esc(ngDataChip("2d")) + '" style="width:auto;flex:1;min-width:148px">' +
+          '<input class="inp" type="date" id="addata" value="' + esc(ngDataChip("2d")) +
+            '" min="' + esc(somaDias(hojeISO(), 1)) + '" style="width:auto;flex:1;min-width:148px">' +
         '</div></div>' +
       ((n.vezesAdiado||0) + 1 >= ADIAMENTOS_PARA_RISCO
         ? '<div class="tiny" style="color:var(--warn)">Com este, sao ' + ((n.vezesAdiado||0)+1) +
@@ -5372,11 +5715,19 @@ ACOES.ngAdiar = function(el){
 };
 ACOES.ngSalvarAdiar = function(f){
   var id = f.getAttribute('data-id'), n = achar("negocios", id);
+  var err = document.getElementById('ngErr');
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var motivo = (document.getElementById('ngAdMot')||{}).value || "";
   var data   = (document.getElementById('addata')||{}).value || "";
-  var err = document.getElementById('ngErr');
   if(!motivo){ err.textContent = "Escolha o motivo."; return; }
   if(!data){ err.textContent = "Escolha a nova data."; return; }
+  // Adiar e empurrar pra frente. Data de ontem soma um adiamento, deixa o
+  // negocio vencido do mesmo jeito e ainda o manda pro balde de atrasado
+  // no dia seguinte, que e o contrario do que a pessoa pediu.
+  if(data <= hojeISO()){
+    err.textContent = "A nova data tem que ser depois de hoje (" + dataBR(hojeISO()) + ").";
+    return;
+  }
   var antes = n.proxData;
   fecharFolha();
   gravar("crm_negocios", id, { proxData:data, vezesAdiado:(n.vezesAdiado||0) + 1 })
@@ -5401,7 +5752,8 @@ ACOES.ngTrocarProx = function(el){
     '<button class="btn btn-primary" type="submit" form="ngF">Salvar</button>');
 };
 ACOES.ngSalvarProx = function(f){
-  var id = f.getAttribute('data-id');
+  var id = f.getAttribute('data-id'), n = achar("negocios", id);
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var p = lerProxPasso("tp");
   if(!p.ligado){ toast("Sem proximo passo o negocio some de todas as filas.", "bad"); return; }
   if(!p.ok) return;
@@ -5485,7 +5837,7 @@ ACOES.ngGanho = function(el){
 
 ACOES.ngSalvarGanho = function(f){
   var id = f.getAttribute('data-id'), n = achar("negocios", id);
-  if(!n) return;
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var err = document.getElementById('ngErr');
   var quandoFechou = (document.getElementById('ngGdata')||{}).value || hojeISO();
   var up = { status:"ganho", fechadoEm:quandoFechou,
@@ -5621,7 +5973,7 @@ ACOES.ngChMotivoPerda = function(el){
 
 ACOES.ngSalvarPerdido = function(f){
   var id = f.getAttribute('data-id'), n = achar("negocios", id);
-  if(!n) return;
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var err = document.getElementById('ngErr');
   var k = (document.getElementById('ngPmot')||{}).value || "";
   if(!k){ err.textContent = "Escolha o que aconteceu. Sem motivo, perder vira estatistica muda."; return; }
@@ -5740,6 +6092,7 @@ function ngPrevDepoisDoGelo(n, ate){
 
 ACOES.ngSalvarCongelar = function(f){
   var id = f.getAttribute('data-id'), n = achar("negocios", id);
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var err = document.getElementById('ngErr');
   var motivo = (document.getElementById('ngCmot')||{}).value || "";
   var ate    = (document.getElementById('ngCate')||{}).value || "";
@@ -5799,7 +6152,8 @@ ACOES.ngEncerrar = function(el){
     '<button class="btn btn-danger" type="submit" form="ngF">Encerrar</button>');
 };
 ACOES.ngSalvarEncerrar = function(f){
-  var id = f.getAttribute('data-id');
+  var id = f.getAttribute('data-id'), n = achar("negocios", id);
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var k = (document.getElementById('ngEmot')||{}).value || "";
   var d = (document.getElementById('ngEdata')||{}).value || hojeISO();
   if(!k){ document.getElementById('ngErr').textContent = "Escolha o motivo."; return; }
@@ -5857,7 +6211,7 @@ ACOES.ngRenovar = function(el){
 };
 ACOES.ngSalvarRenovar = function(f){
   var id = f.getAttribute('data-id'), n = achar("negocios", id);
-  if(!n) return;
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var err = document.getElementById('ngErr');
   var mrr = ngLerDinheiro((document.getElementById('ngRmrr')||{}).value);
   if(mrr <= 0){ err.textContent = "Preencha o fee proposto em R$."; return; }
@@ -5984,7 +6338,7 @@ ACOES.ngEditarValores = function(el){
 
 ACOES.ngSalvarValores = function(f){
   var id = f.getAttribute('data-id'), n = achar("negocios", id);
-  if(!n) return;
+  if(!n){ fecharFolha(); toast("Esse negocio nao esta mais neste aparelho.", "bad"); return; }
   var up = {}, i, el;
 
   if(n.tipo === "agencia"){
@@ -6259,8 +6613,10 @@ function pesEstat(valores, fmt){
   }
   var m = mediana(v);
   var peq = v.length < 8;
+  // "mediana de 9" se le como se 9 fosse o valor. O tamanho da amostra
+  // precisa vir com a unidade dele, que e quantidade de negocios.
   return '<b>' + fmt(m) + '</b> <span class="tiny" style="color:var(--text3)' + (peq ? ';opacity:.7' : '') + '">' +
-         (peq ? 'mediana, n=' + v.length : 'mediana de ' + v.length) + '</span>';
+         (peq ? 'mediana, n=' + v.length : 'mediana de ' + pesQtd(v.length, "negocio", "negocios")) + '</span>';
 }
 
 /* Acao sem permissao fica VISIVEL e DESABILITADA, com o motivo embaixo em
@@ -6367,6 +6723,19 @@ function pesTelComDDI(s){
   return d;
 }
 
+/* Motivo pra bloquear os botoes de telefone, ou null quando da pra usar.
+   Ter o campo preenchido nao e o mesmo que ter telefone utilizavel:
+   linkWhats() devolve string vazia abaixo de 10 digitos, entao um ramal de
+   4 digitos deixava o botao de WhatsApp vivo e sem link nenhum atras.
+   O vendedor toca, a folha abre vazia, e ele acha que o CRM travou.
+   Invariante 12: o botao fica visivel e DESABILITADO, com o motivo escrito. */
+function pesMotivoTel(tel){
+  var d = soDigito(tel||"");
+  if(!d) return "Sem telefone cadastrado.";
+  if(d.length < 10) return "O telefone anotado (" + d + ") esta sem DDD, entao nao da pra abrir WhatsApp nem discar. Edite o contato e escreva com os 2 digitos do DDD.";
+  return null;
+}
+
 /* ---------------------------------------------------------------------
    TELA: PESSOAS
    --------------------------------------------------------------------- */
@@ -6378,7 +6747,7 @@ TELAS.pessoas = function(){
   var h = `<div class="card-head" style="margin-bottom:0">
     <div>
       <div class="h1">Pessoas</div>
-      <div class="sec-sub" style="padding-left:0">${contatos.length} contatos cadastrados, ${indicadores.length} marcados como indicador</div>
+      <div class="sec-sub" style="padding-left:0">${pesQtd(contatos.length,"contato cadastrado","contatos cadastrados")}, ${pesQtd(indicadores.length,"marcado","marcados")} como indicador</div>
     </div>
     ${pesBotao("Novo contato","pessoasNovoContato",{},"btn-primary",bloq)}
   </div>`;
@@ -6485,11 +6854,16 @@ function pesViewIndicadores(){
   }
 
   if(!rank.length){
+    // Sem ranking a tela NAO pode acabar aqui. No primeiro dia a pilha diz
+    // "So indicadores (3)" e o ranking esta vazio: se o bloco de marcados
+    // sem indicar tambem some, o vendedor ve o contador prometer 3 pessoas
+    // e a tela nao mostrar nenhuma. Sao justamente as 3 ligacoes que ele
+    // tem pra fazer hoje.
     return `<div class="card"><div class="empty">
       <div class="ei">🤝</div><div class="et">Nenhuma indicacao anotada ainda</div>
       <div class="ex">Assim que um negocio for cadastrado com origem indicacao e com quem indicou preenchido, o ranking aparece aqui sozinho, sem precisar recalcular nada.</div>
       ${orfas.length ? '<div class="tiny" style="color:var(--warn)">' + pesQtd(orfas.length,"negocio tem","negocios tem") + ' origem indicacao mas ninguem anotado como indicador.</div>' : ''}
-    </div></div>`;
+    </div></div>` + pesBlocoSemIndicar(rank);
   }
 
   var h = `<div class="kpis">
@@ -6564,7 +6938,7 @@ function pesTabelaRank(rank, totalGeral){
       </div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:9px">
         <div><div class="tiny muted">Indicacoes</div><div class="num" style="font-size:19px">${r.n}</div></div>
-        <div><div class="tiny muted">Viraram cliente</div><div class="num" style="font-size:19px">${r.ganhos} <span class="tiny muted">${pct(r.conversao,0)}</span></div></div>
+        <div><div class="tiny muted">Viraram cliente</div><div class="num" style="font-size:19px">${r.ganhos} <span class="tiny muted">${pct(r.conversao,0)} de ${r.n}</span></div></div>
         <div><div class="tiny muted">Gerado</div><div class="num" style="font-size:19px">${brlCurto(r.gerado)}</div></div>
       </div>
       <div class="tiny muted" style="margin-top:8px">
@@ -6575,7 +6949,13 @@ function pesTabelaRank(rank, totalGeral){
 
   return `<div>
     <div class="sec-title">Quem indicou, e o que aquilo virou</div>
-    <div class="sec-sub">Ordenado por R$ gerado. Toda taxa vem com o n ao lado, porque 100% com uma indicacao nao e 100%, e uma indicacao.</div>
+    <div class="sec-sub">Ordenado por R$ gerado. Toda taxa vem com o n ao lado, porque 100% com uma indicacao nao e 100%, e uma indicacao.${
+      // Com filtro ligado a tabela mostra menos linhas que os totais de
+      // cima, que continuam somando o ranking inteiro. Sem esta linha as
+      // duas metades da tela discordam sem explicacao.
+      (PESSOAS_FILTRO && rank.length < totalGeral)
+        ? ' Mostrando ' + rank.length + ' de ' + pesQtd(totalGeral,"indicador","indicadores") + ', filtrado por "' + esc(PESSOAS_FILTRO) + '". Os numeros grandes acima somam o ranking inteiro.'
+        : ''}</div>
     <div class="tw no-mob" style="margin-top:12px">
       <table class="tb">
         <thead><tr>
@@ -6633,7 +7013,7 @@ function pesBlocoEsfriando(rank){
   if(!frios.length) return "";
 
   var itens = frios.map(function(r){
-    var semTel = r.tel ? null : "Sem telefone cadastrado.";
+    var semTel = pesMotivoTel(r.tel);
     return `<div class="card" style="background:var(--card2);padding:13px;margin-bottom:9px">
       <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
         <div style="min-width:0">
@@ -6666,7 +7046,7 @@ function pesBlocoSemIndicar(rank){
 
   zerados.sort(function(a,b){ return chave(a.nome) < chave(b.nome) ? -1 : 1; });
   var itens = zerados.map(function(c){
-    var semTel = c.tel ? null : "Sem telefone cadastrado.";
+    var semTel = pesMotivoTel(c.tel);
     return `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid var(--border)">
       <div style="min-width:0">
         <div class="cel-nome truncate">${esc(c.nome)}</div>
@@ -6702,7 +7082,10 @@ function pesBlocoComparativo(){
       else if(r <= 0.95) partes.push("ganha " + pesNumBR(1/r) + " vezes menos");
       else               partes.push("ganha na mesma proporcao");
     } else if(a.taxa > 0 && b.taxa === 0){
-      partes.push("ganha, e nenhum negocio de outra origem fechou ainda");
+      // Dizer "nenhum negocio de outra origem fechou ainda" seria falso:
+      // eles fecharam, todos perdidos, e o bloco ao lado mostra o numero.
+      partes.push("ganha " + pct(a.taxa,0) + " das vezes, e nenhum dos " +
+                  pesQtd(b.nFech, "negocio", "negocios") + " de outra origem foi ganho");
     }
   }
   if(a.ciclos.length >= 3 && b.ciclos.length >= 3){
@@ -6713,10 +7096,35 @@ function pesBlocoComparativo(){
   }
   var frase = partes.length ? "Negocio indicado " + partes.join(" e ") + "." : "";
 
+  /* Quando a frase nao sai, a tela precisa dizer o motivo CERTO. Antes ela
+     acusava sempre amostra pequena, e mentia na base em que os dois lados
+     tinham 3 fechados ou mais e ninguem tinha ganhado nada ainda: os
+     numeros logo abaixo mostravam 3 e 3, e o texto dizia que faltava
+     amostra. Texto que discorda do numero ao lado derruba a confianca em
+     todo o resto da tela. */
+  var semFrase;
+  if(a.nFech < 3 || b.nFech < 3){
+    var curto = a.nFech < 3 ? "os indicados" : "as outras origens";
+    semFrase = "Ainda nao da pra comparar: " + curto + " tem " +
+      pesQtd(Math.min(a.nFech, b.nFech), "negocio fechado", "negocios fechados") +
+      ", e abaixo de 3 a frase sai bonita e errada. Indicados: " +
+      pesQtd(a.nFech, "fechado", "fechados") + ". Outras origens: " +
+      pesQtd(b.nFech, "fechado", "fechados") + ".";
+  } else if(!a.nGanhos && !b.nGanhos){
+    semFrase = "Os dois lados ja tem fechamento suficiente (" + a.nFech + " indicados e " +
+      b.nFech + " de outras origens), mas nenhum negocio foi ganho ainda, entao nao existe taxa pra comparar.";
+  } else if(!a.nGanhos){
+    semFrase = "Nenhum dos " + pesQtd(a.nFech, "negocio indicado fechado", "negocios indicados fechados") +
+      " foi ganho ainda, entao a comparacao de taxa sairia como zero contra tudo e nao diria nada.";
+  } else {
+    semFrase = "Da pra comparar a taxa, mas nao o ciclo: falta data de criacao ou de fechamento em pelo menos um dos lados, " +
+      "que tem " + a.ciclos.length + " e " + b.ciclos.length + " ciclos completos, e o minimo e 3 de cada.";
+  }
+
   return `<div class="card">
     <div class="sec-title">Indicado contra nao indicado</div>
     <div class="sec-sub">So negocio ja fechado entra. Quem a gente desqualificou ("nao era perfil") fica fora do denominador da taxa.</div>
-    ${frase ? `<div class="h1" style="margin-top:13px;color:var(--lime);font-size:20px;line-height:1.3">${esc(frase)}</div>` : `<div class="tiny muted" style="margin-top:13px">Ainda nao da pra comparar os dois lados: um deles tem menos de 3 negocios fechados, e com menos de 3 a frase sai bonita e errada.</div>`}
+    ${frase ? `<div class="h1" style="margin-top:13px;color:var(--lime);font-size:20px;line-height:1.3">${esc(frase)}</div>` : `<div class="tiny muted" style="margin-top:13px">${esc(semFrase)}</div>`}
     <div class="grid2" style="margin-top:15px">
       ${pesColunaComparativo("Veio de indicacao", a)}
       ${pesColunaComparativo("Outras origens", b)}
@@ -6753,7 +7161,7 @@ TELAS.pessoa = function(){
   }
 
   var bloq = motivoBloqueio("crm_contatos");
-  var semTel = c.tel ? null : "Sem telefone cadastrado.";
+  var semTel = pesMotivoTel(c.tel);
   var rank = rankIndicadores(), meu = null, i;
   for(i=0;i<rank.length;i++) if(rank[i].id === c.id) meu = rank[i];
 
@@ -6785,7 +7193,7 @@ TELAS.pessoa = function(){
   h += `<div class="card">
     <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:flex-start">
       ${pesBotao("WhatsApp","pessoaWhats",{ id:c.id },"btn-primary",semTel)}
-      ${c.tel ? '<a class="btn" href="tel:+' + esc(pesTelComDDI(c.tel)) + '">Ligar</a>' : pesBotao("Ligar","",{},"",semTel)}
+      ${semTel ? pesBotao("Ligar","",{},"",semTel) : '<a class="btn" href="tel:+' + esc(pesTelComDDI(c.tel)) + '">Ligar</a>'}
       ${c.email ? '<a class="btn" href="mailto:' + esc(c.email) + '">E-mail</a>' : pesBotao("E-mail","",{},"","Sem e-mail cadastrado.")}
       ${pesBotao("Pedir indicacao","pessoaPedirIndicacao",{ id:c.id },"",semTel)}
       ${pesBotao("Editar","pessoaEditar",{ id:c.id },"",bloq)}
@@ -6794,7 +7202,7 @@ TELAS.pessoa = function(){
         : pesBotao("Arquivar","pessoaArquivar",{ id:c.id },"btn-danger",bloq)}
     </div>
     <div class="tiny muted" style="margin-top:11px;line-height:1.6">
-      ${c.tel ? "WhatsApp e telefone: " + esc(foneBR(c.tel)) : "Sem telefone."}
+      ${semTel ? esc(semTel) : "WhatsApp e telefone: " + esc(foneBR(c.tel))}
       ${c.email ? " · E-mail: " + esc(c.email) : ""}
       ${c.criadoEm ? " · No CRM desde " + esc(dataBR(c.criadoEm)) + (c.criadoPor ? ", por " + esc(c.criadoPor) : "") : ""}
     </div>
@@ -7105,6 +7513,10 @@ function idxCompromisso(tipo){
 }
 function altaChance(n, ym){
   if(!n || n.status !== "aberto") return false;
+  // Tipo fora dos dois funis nao tem estagio de compromisso pra comparar,
+  // e sem esta linha ele entraria na previsao com valor zero, aparecendo
+  // na lista de alta chance sem somar nada. Previsao a mais mente.
+  if(!FUNIL[n.tipo]) return false;
   if(n.prevEstimada) return false;               // data automatica nao conta
   if(!n.prevFechamento) return false;
   var hoje = hojeISO();
@@ -7138,6 +7550,15 @@ function numerosDoMes(ym){
     novoMrr:0, novoMrrItens:[],
     mrrPerdido:0, mrrPerdidoCancel:0, mrrPerdidoNaoRenov:0, perdidoItens:[],
     mrrLiquido:0, mrrAlta:0,
+    /* CUIDADO AO USAR fechado, piso, provavel e limpo FORA DO PAINEL.
+       Os quatro somam contrato de agencia (fee vezes meses) com cota de
+       patrocinio (pagamento unico), que sao unidades diferentes. Isso e
+       proposital e serve pra UMA coisa so: dimensionar esforco comercial
+       na coluna Total, que na tela vem com a nota fixa explicando.
+       Nao e caixa do mes e nao pode virar frase solta em outra tela.
+       Quem for escrever texto ou numero em outro lugar usa porTipo, que
+       ja vem quebrado por funil. O resumo do dia (06-hoje.js) faz assim.
+       A invariante 5 do SPEC existe por causa disso.                   */
     fechado:0, fechadoItens:[],
     // previsao (7.2)
     altaChance:[], riscoItens:[], piso:0, provavel:0, limpo:0,
@@ -7287,10 +7708,18 @@ function pnlSaude(ym){
 /* ---------------------------------------------------------------------
    GANHOS E PERDAS, JANELA DE 12 MESES (7.4)
    --------------------------------------------------------------------- */
+// Contrato que foi GANHO e depois encerrado continua sendo um negocio
+// ganho: encerrar troca o status pra "encerrado" mas mantem o fechadoEm.
+// Sem esta linha, todo cliente que saiu some da taxa de ganho e do ciclo,
+// e uma agencia com clientes antigos mostra uma taxa de ganho menor do
+// que a real justamente porque ganhou faz tempo.
+function pnlFoiGanho(n){
+  return n.status === "ganho" || (n.status === "encerrado" && !!n.fechadoEm);
+}
 function pnlFechados12(){
   var corte = somaDias(hojeISO(), -365);
   return lista("negocios").filter(function(n){
-    return (n.status === "ganho" || n.status === "perdido") &&
+    return (pnlFoiGanho(n) || n.status === "perdido") &&
            n.fechadoEm && n.fechadoEm >= corte;
   });
 }
@@ -7301,7 +7730,7 @@ function pnlGanhosPerdas(){
   var mapa = {};
   for(i = 0; i < f.length; i++){
     n = f[i];
-    if(n.status === "ganho"){
+    if(pnlFoiGanho(n)){
       g.ganhos.push(n);
       if(n.criadoEm) g.ciclos.push(diasEntre(n.criadoEm, n.fechadoEm));
       continue;
@@ -7320,6 +7749,11 @@ function pnlGanhosPerdas(){
   }
   var den = g.ganhos.length + g.perdasReais.length;
   g.temTaxa = den > 0;
+  // Regra de amostra pequena, que vale pra TODO numero derivado do sistema.
+  // Com 1 ganho e nenhuma perda a conta da 100%, e no primeiro mes de uso e
+  // sempre esse o caso: a manchete mais visivel do painel nasce mentindo.
+  // Abaixo de 3 decididos a tela mostra a contagem crua, nao a taxa.
+  g.temAmostra = den >= 3;
   g.taxaGanho = den ? Math.round((g.ganhos.length / den) * 100) : 0;
   g.den = den;
   for(var mk in mapa) if(Object.prototype.hasOwnProperty.call(mapa, mk)) g.motivos.push(mapa[mk]);
@@ -7717,11 +8151,18 @@ function pnlTabelaEdicao(N){
       '<td class="r">' + pnlNumPeq(brl(a.fechado), "fechadoT", "", ' data-tipo="agencia"') + '</td>' +
       '<td class="r">' + pnlNumPeq(brl(e.vendido), "edVendido", "", ' data-k="' + esc(k) + '"') + '</td>' +
       '<td class="r muted">nao se soma</td></tr>' +
-    '<tr><td class="cel-nome">Em aberto</td>' +
+    /* A linha NAO se chama "Em aberto": as duas celulas contam coisas
+       diferentes, e um rotulo so pras duas faria a coluna de agencia
+       mentir. Agencia conta alta chance do mes, patrocinio conta toda
+       cota aberta da edicao. A linha de baixo diz isso por escrito. */
+    '<tr><td class="cel-nome">Ainda em jogo</td>' +
       '<td class="r">' + pnlNumPeq(brl(a.alta), "altaT", "", ' data-tipo="agencia"') + '</td>' +
       '<td class="r">' + pnlNumPeq(brl(e.emAberto), "edAberto", "", ' data-k="' + esc(k) + '"') + '</td>' +
       '<td class="r muted">nao se soma</td></tr>' +
-  '</tbody></table></div>';
+  '</tbody></table>' +
+  '<div class="tiny muted" style="margin-top:6px">Em "ainda em jogo", a coluna de agencia conta a ' +
+  'alta chance do mes, em R$, e a de patrocinio conta toda cota aberta da edicao, em R$. ' +
+  'Sao dois recortes diferentes, por isso nunca aparecem somados.</div></div>';
 
   h += '<div class="only-mob">' +
     '<div class="card" style="margin-top:9px;background:var(--card2)">' +
@@ -7807,8 +8248,16 @@ function pnlBlocoSaude(S, N){
       (S.concentracao > 60 ? '<br><b style="color:var(--red)">A previsao do mes e uma moeda girando num negocio so.</b>' : '') +
       '</div></div>';
   } else {
+    // Duas razoes diferentes pro traco, e a tela precisa dizer QUAL. Escrever
+    // "so aparece com 3 ou mais, agora sao 3" e a tela se contradizendo na
+    // mesma linha, que e o que acontecia com tres negocios cadastrados as
+    // pressas sem valor nenhum preenchido.
     h += pnlKpi("Concentracao do mes", '<div class="kpi-v muted" style="font-size:20px">-</div>',
-      'So aparece com 3 ou mais negocios abertos previstos pro mes. Agora sao ' + S.abertosMes.length + '.');
+      S.abertosMes.length >= 3
+        ? 'Os ' + S.abertosMes.length + ' negocios abertos previstos pro mes estao todos sem valor em R$, ' +
+          'entao nao da pra dizer quanto o maior pesa. Preencha o valor deles pra este numero existir.'
+        : 'So aparece com 3 ou mais negocios abertos previstos pro mes. Agora ' +
+          (S.abertosMes.length === 1 ? 'e 1.' : 'sao ' + S.abertosMes.length + '.'));
   }
 
   var cv = !S.vencidos.length ? "green" : (S.piorAtraso > 30 ? "red" : "warn");
@@ -7845,10 +8294,15 @@ function pnlBlocoGanhosPerdas(){
   h += '<div class="kpis">';
   // Taxa de ganho: fora_do_perfil FORA do denominador.
   h += '<div class="kpi accent"><div class="kpi-l">Taxa de ganho</div>' +
-    (G.temTaxa
+    (G.temTaxa && !G.temAmostra
+      ? pnlNum(G.ganhos.length + '<span style="font-size:17px;color:var(--text3)"> de ' + G.den + '</span>', "ganhos12", "lime") +
+        '<div class="kpi-s"><span class="muted">' + G.den +
+        (G.den === 1 ? ' negocio decidido nos 12 meses, pouco pra virar taxa. ' : ' negocios decididos nos 12 meses, pouco pra virar taxa. ') +
+        'A partir de 3 decididos a tela passa a mostrar o percentual.</span></div>'
+    : G.temAmostra
       ? pnlNum(pct(G.taxaGanho), "ganhos12", "lime") +
         '<div class="kpi-s">' + pnlNumPeq(String(G.ganhos.length), "ganhos12", "") +
-        '<span class="muted"> ganhos em ' + G.den + ' decididos. </span>' +
+        '<span class="muted">' + (G.ganhos.length === 1 ? ' ganho em ' : ' ganhos em ') + G.den + ' decididos' + (G.den < 8 ? ', n=' + G.den : '') + '. </span>' +
         (G.foraPerfil.length
           ? pnlNumPeq(String(G.foraPerfil.length), "foraPerfil", "") +
             '<span class="muted"> desqualificados ficaram fora da conta: dizer nao nao e derrota.</span>'
@@ -8513,7 +8967,10 @@ function buscar(termo){
   var termos = cadPalavras(bruto);
   var dig = soDigito(bruto);
   var porFone = dig.length >= 4;          // 4 digitos ja e o fim de um numero
-  var vazio = { negocios:[], contatos:[], total:0 };
+  // A resposta vazia tem que ter a MESMA forma da cheia. Quem le
+  // r.totalNegocios pra escrever "5 de 12" recebia undefined aqui, e
+  // "5 de undefined" e o tipo de coisa que vaza pra tela do vendedor.
+  var vazio = { negocios:[], contatos:[], totalNegocios:0, totalContatos:0, total:0 };
 
   if(!termos.length && !porFone) return vazio;
   // Uma letra so casa quase tudo e o resultado vira ruido.
@@ -8704,6 +9161,7 @@ document.addEventListener('input', function(ev){
   if(el.id === "busca"){ pintarBusca(el.value); return; }
   if(el.id === "nnEmpresa"){ nnPintarDup(); nnPintarTitulo(); return; }
   if(el.id === "nnTitulo"){ if(NOVO) NOVO.tituloTocado = true; return; }
+  if(el.id === "ncNome" || el.id === "ncTel"){ ncPintarDup(); return; }
   if(el.id === "nnIndicBusca"){ nnPintarIndic(); return; }
   if(el.id === "msgTexto"){
     // A lista de campos que faltam so e refeita quando a lista MUDA. Refazer
@@ -8796,7 +9254,10 @@ function abrirNovoNegocio(pre){
   var ct = NOVO.contatoId ? contatoPorId(NOVO.contatoId) : null;
   if(NOVO.indicadorId){
     var ind = contatoPorId(NOVO.indicadorId);
-    if(ind){ NOVO.indicadorNome = ind.nome; if(!NOVO.origem) NOVO.origem = "indicacao"; }
+    // Contato excluido nao pode nascer como quem indicou: a ficha dele nao
+    // aparece em lista nenhuma, entao o credito da indicacao ficaria preso
+    // num lugar onde ninguem consegue abrir pra cobrar o acordo.
+    if(ind && !ind.arquivado){ NOVO.indicadorNome = ind.nome; if(!NOVO.origem) NOVO.origem = "indicacao"; }
     else NOVO.indicadorId = "";
   }
   var empresa = pre.empresa || (ct && ct.empresa) || "";
@@ -9084,7 +9545,16 @@ ACOES.salvarNovoNegocio = function(form){
     falha("Escolha quem indicou, ou crie o contato ali mesmo no campo."); return;
   }
   var pp = lerProxPasso('np');
-  if(!pp || !pp.ok){ falha((pp && pp.erro) || "Marque o proximo passo com tipo e data."); return; }
+  // O proximo passo e obrigatorio NO CADASTRO, e por isso a checagem olha
+  // pp.ligado antes de pp.ok: com a caixinha desmarcada lerProxPasso devolve
+  // ok:true de proposito (no resto do sistema desmarcar e uma escolha valida),
+  // e o negocio nasceria com proxData vazia, no balde "sem data", fora da fila
+  // do Hoje. Negocio que nao aparece na fila e negocio esquecido.
+  if(!pp || !pp.ligado){
+    falha("Marque o proximo passo. Sem data o negocio nao entra na fila do Hoje e ninguem lembra dele.");
+    return;
+  }
+  if(!pp.ok){ falha(pp.erro || "Marque o proximo passo com tipo e data."); return; }
 
   var titulo = (document.getElementById('nnTitulo').value || "").trim() || nnTituloAuto();
   var tipo = NOVO.tipo;
@@ -9200,6 +9670,8 @@ function abrirNovoContato(pre, aoSalvar){
           'so e-mail vira botao de e-mail.</div>' +
       '</div>' +
 
+      '<div id="ncDup"></div>' +
+
       '<button type="button" class="btn btn-ghost btn-block" data-a="ncMais">Mais campos</button>' +
 
       '<div id="ncExtras" hidden>' +
@@ -9239,7 +9711,64 @@ function abrirNovoContato(pre, aoSalvar){
     '</div>';
 
   folha("Contato novo", corpo, rodape);
+  ncPintarDup();     // o nome pode ter vindo pronto da busca
 }
+
+/* O cadastro de negocio ja avisa de empresa repetida; a pessoa nao avisava
+   nada. Quem liga com pressa cadastra a Carla de novo como "Carla M", e a
+   partir dali as indicacoes dela ficam divididas em duas fichas: o ranking
+   de indicadores conta metade, e a conversa antiga esta na outra. Avisa e
+   oferece a ficha que ja existe, sem barrar, porque duas pessoas podem
+   dividir o mesmo telefone de empresa. */
+function ncPintarDup(){
+  var w = document.getElementById('ncDup');
+  if(!w) return;
+  w.innerHTML = "";
+  var elN = document.getElementById('ncNome');
+  var elT = document.getElementById('ncTel');
+  var nk = chave(elN ? elN.value : "");
+  var dig = soDigito(elT ? elT.value : "");
+  if(nk.length < 3 && dig.length < 10) return;
+
+  var cs = lista("contatos");
+  var achados = [], porFone = false;
+  for(var i=0;i<cs.length && achados.length < 3;i++){
+    var c = cs[i];
+    var mesmoFone = dig.length >= 10 && c.tel && soDigito(c.tel) === dig;
+    var mesmoNome = nk.length >= 3 && chave(c.nome) === nk;
+    if(!mesmoFone && !mesmoNome) continue;
+    if(mesmoFone) porFone = true;
+    achados.push({ c:c, fone:mesmoFone });
+  }
+  if(!achados.length) return;
+
+  var h = '';
+  for(var j=0;j<achados.length;j++){
+    var a = achados[j];
+    var sub = a.fone ? "mesmo telefone" : "mesmo nome";
+    h += '<div class="tiny" style="color:var(--warn);margin-top:6px;display:flex;' +
+         'align-items:center;gap:8px;flex-wrap:wrap">' +
+         '<span><b>' + esc(a.c.nome) + '</b> ja esta cadastrada com ' + sub +
+         (a.c.empresa ? ' (' + esc(a.c.empresa) + ')' : '') + '</span>' +
+         '<button type="button" class="btn btn-sm" data-a="ncUsarExistente" data-id="' +
+         esc(a.c.id) + '">usar essa pessoa</button>' +
+         '</div>';
+  }
+  if(porFone){
+    h += '<div class="tiny muted" style="margin-top:4px">Duas fichas com o mesmo telefone ' +
+         'partem a conversa e o credito da indicacao em duas.</div>';
+  }
+  w.innerHTML = h;
+}
+// Fecha o cadastro e entrega a ficha que ja existe pra quem abriu a folha
+// (o campo "quem indicou", por exemplo). Sem quem chamar, abre a pessoa.
+ACOES.ncUsarExistente = function(el){
+  var c = contatoPorId(el.getAttribute('data-id'));
+  if(!c) return;
+  var cb = CONT_AOSALVAR; CONT_AOSALVAR = null;
+  fecharFolha();
+  if(cb) cb(c); else ir("pessoa/" + c.id);
+};
 
 ACOES.ncMais = function(el){
   var w = document.getElementById('ncExtras');
@@ -9722,6 +10251,7 @@ ACOES.novoContato = function(){ fecharFolha(); abrirNovoContato({}, null); };
    ===================================================================== */
 var ACESSOS_PEDIDOS = false;    // ja pedi a lista nesta sessao?
 var SENHA_NOVA = null;          // { nome, senha, tel } do cartao que fica na tela
+var AC_SALVANDO = false;        // trava contra duplo toque no Criar acesso
 
 TELAS.acessos = function(){
   if(!ehAdmin()){
@@ -9966,8 +10496,13 @@ ACOES.acNovo = function(){
 };
 
 ACOES.acSalvarNovo = function(){
+  // A lista local so recebe o acesso novo depois que o banco confirma, entao
+  // sem esta trava o segundo toque passa pela checagem de nome repetido (que
+  // ainda nao ve o primeiro) e cria DOIS acessos com o mesmo nome e senhas
+  // diferentes, que e exatamente o que a checagem existe pra impedir.
+  if(AC_SALVANDO) return;
   var err = document.getElementById('acErr');
-  function falha(m){ if(err) err.textContent = m; }
+  function falha(m){ AC_SALVANDO = false; if(err) err.textContent = m; }
 
   var motivo = motivoBloqueio("crm_acessos");
   if(motivo){ falha(motivo); return; }
@@ -9989,6 +10524,7 @@ ACOES.acSalvarNovo = function(){
 
   var senha = senhaGerada();
   var id = idNovo("ac");
+  AC_SALVANDO = true;
   err.textContent = "Criando...";
 
   sha256(senha).then(function(h){
@@ -10002,6 +10538,7 @@ ACOES.acSalvarNovo = function(){
     // lista NAO passa pelo cache do gravar() (crm_acessos fica fora dele).
     return gravar("crm_acessos", id, doc).then(function(){ ACESSOS.push(doc); });
   }).then(function(){
+    AC_SALVANDO = false;
     SENHA_NOVA = { nome:nome, senha:senha, tel:tel };
     fecharFolha();
     toast("Acesso criado", "ok");
@@ -10222,6 +10759,17 @@ ACOES.acDesativar = function(el){
 ACOES.acDesativarMesmo = function(el){
   var a = acPorId(el.getAttribute('data-id'));
   if(!a) return;
+  // As duas guardas sao repetidas aqui, e nao so na folha que abre esta
+  // confirmacao, porque esta e a porta que ESCREVE. Entre abrir a folha e
+  // confirmar cabe um "Reler a lista" ou a desativacao feita por outro admin
+  // no aparelho dele, e a pessoa da folha aberta vira o ultimo admin ativo.
+  // Confirmar ali derrubaria o ultimo admin e ninguem mais abriria esta tela.
+  if(SESSAO && SESSAO.acessoId === a.id){
+    fecharFolha(); toast("Nao da pra desativar o proprio acesso", "bad"); return;
+  }
+  if(acEhUltimoAdmin(a)){
+    fecharFolha(); toast("E o ultimo admin ativo. Promova outra pessoa a admin antes.", "bad"); return;
+  }
   a.ativo = false;
   gravar("crm_acessos", a.id, { ativo:false })
     .then(function(){ fecharFolha(); toast(a.nome + " nao entra mais", "ok"); redesenhar(); })
