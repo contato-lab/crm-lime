@@ -872,7 +872,7 @@ function atualizaAvisoFila(){
    negocio no banco e regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.2";
+var VERSAO = "2026-09-11.3";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1936,8 +1936,28 @@ function atualizaTituloAba(){
    Um escutador no documento inteiro. Nenhuma tela registra o proprio.
    --------------------------------------------------------------------- */
 document.addEventListener('click', function(ev){
-  var el = ev.target.closest('[data-a]');
+  var alvo = ev.target;
+  var el = alvo.closest('[data-a]');
   if(!el) return;
+
+  /* DUAS GUARDAS, e as duas nasceram de um defeito que apareceu em uso
+     real (11/09/2026) e afetava os 24 formularios do sistema.
+
+     1) Um <form data-a="salvarX"> pertence ao SUBMIT, nunca ao clique.
+        Sem esta linha, closest() subia do campo clicado ate o formulario
+        e disparava "salvar" a CADA clique dentro dele. Pior: o
+        preventDefault logo abaixo impedia o campo de receber o foco.
+        Na tela isso aparecia assim: a pessoa digitava a senha, clicava no
+        campo do telefone, e o sistema salvava sozinho sem o telefone e
+        ainda nao deixava digitar. O botao de enviar que fica dentro do
+        formulario tambem disparava a acao duas vezes, uma no clique e
+        outra no submit.
+
+     2) Clique em campo de formulario e a pessoa focando o campo, nunca
+        uma acao, mesmo quando o campo esta dentro de um bloco clicavel.  */
+  if(el.tagName === "FORM") return;
+  if(alvo.closest("input, select, textarea, option, label")) return;
+
   var nome = el.getAttribute('data-a');
   if(!ACOES[nome]) return;
   ev.preventDefault();
@@ -9822,7 +9842,8 @@ function acCartoes(){
 function acBotoes(a){
   var eu = (SESSAO && SESSAO.acessoId === a.id);
   var ultimoAdmin = acEhUltimoAdmin(a);
-  var h = '<button class="btn btn-sm" data-a="acSenha" data-id="' + esc(a.id) + '">Trocar senha</button>' +
+  var h = '<button class="btn btn-sm" data-a="acNome" data-id="' + esc(a.id) + '">Editar nome</button>' +
+          '<button class="btn btn-sm" data-a="acSenha" data-id="' + esc(a.id) + '">Trocar senha</button>' +
           '<button class="btn btn-sm" data-a="acPerfil" data-id="' + esc(a.id) + '">Trocar perfil</button>';
   if(a.ativo === false){
     h += '<button class="btn btn-sm btn-primary" data-a="acAtivar" data-id="' + esc(a.id) + '">Ativar</button>';
@@ -9992,6 +10013,70 @@ ACOES.acSalvarNovo = function(){
       falha("Nao deu: " + ((e && e.message) || "erro"));
     }
   });
+};
+
+/* ---------- editar o nome do acesso ----------
+   Existe porque nome sai errado: erro de digitacao, apelido que nao pega,
+   ou a pessoa que usa aquele acesso mudou. Sem isso a unica saida era
+   desativar e criar outro, o que suja a lista e quebra a autoria dos
+   registros antigos, que guardam o NOME de quem gravou.
+   A senha e o perfil nao se tocam aqui: cada um tem o proprio botao.  */
+ACOES.acNome = function(el){
+  var a = acPorId(el.getAttribute('data-id'));
+  if(!a) return;
+  var bloqueio = motivoBloqueio("crm_acessos");
+  folha("Editar nome do acesso",
+    '<form class="form" id="anForm" data-a="acSalvarNome">' +
+      '<input type="hidden" id="anId" value="' + esc(a.id) + '">' +
+      '<div class="fld"><label>Nome</label>' +
+        '<input class="inp" id="anNome" maxlength="60" autocomplete="off" value="' + esc(a.nome || "") + '">' +
+        '<div class="hint">E o nome que aparece na autoria dos registros daqui pra frente. ' +
+        'O que ja foi gravado guarda o nome antigo, porque registro nao se reescreve.</div></div>' +
+      '<div class="fld"><div class="err" id="anErr"></div></div>' +
+    '</form>',
+    '<button class="btn btn-ghost" type="button" data-a="fecharFolha">Cancelar</button>' +
+    '<div style="flex:1;min-width:0">' +
+      '<button class="btn btn-primary btn-block" type="submit" form="anForm"' +
+        (bloqueio ? ' disabled' : '') + '>Salvar nome</button>' +
+      cadMotivo(bloqueio) + '</div>');
+};
+ACOES.acSalvarNome = function(){
+  var err = document.getElementById('anErr');
+  function falha(m){ if(err) err.textContent = m; }
+  var motivo = motivoBloqueio("crm_acessos");
+  if(motivo){ falha(motivo); return; }
+
+  var id = document.getElementById('anId').value;
+  var a = acPorId(id);
+  if(!a){ falha("Esse acesso nao esta mais na lista."); return; }
+  var nome = (document.getElementById('anNome').value || "").trim();
+  if(nome.length < 2){ falha("Escreva o nome do acesso."); return; }
+  if(nome === a.nome){ fecharFolha(); return; }
+
+  // Varre a lista inteira, inclusive desativados: dois logins com o mesmo
+  // nome fazem a autoria dos registros deixar de distinguir quem foi.
+  var rep = acNomeRepetido(nome, id);
+  if(rep){
+    falha('Ja existe um acesso chamado "' + rep.nome + '" (' +
+          (rep.ativo === false ? "desativado" : "ativo") + ').');
+    return;
+  }
+
+  var antigo = a.nome;
+  err.textContent = "Salvando...";
+  a.nome = nome.slice(0,60);
+  gravar("crm_acessos", id, { nome:a.nome })
+    .then(function(){
+      // Se o nome trocado for o meu, o cabecalho tem que acompanhar na hora.
+      if(SESSAO && SESSAO.acessoId === id){
+        SESSAO.nome = a.nome; guardar("sessao", SESSAO); pintarCabecalho();
+      }
+      fecharFolha(); toast("Nome trocado", "ok"); redesenhar();
+    })
+    .catch(function(e){
+      a.nome = antigo;
+      falha("Nao deu: " + ((e && e.message) || "erro"));
+    });
 };
 
 /* ---------- trocar senha de outra pessoa ---------- */
