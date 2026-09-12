@@ -988,7 +988,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.18";
+var VERSAO = "2026-09-11.19";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -5710,11 +5710,68 @@ function ngDiasUteis(iso, n){
   }
   return d;
 }
+/* O prazo de cada tipo de passo ja esta na configuracao, e ate agora
+   ficava parado: o sistema sabe que cobrar resposta de proposta sao 3
+   dias uteis e mandava a pessoa digitar isso toda vez.
+
+   Nenhum dos CRMs grandes faz isso, e por um motivo simples: nenhum deles
+   guarda prazo por tipo. No Pipedrive, criar um tipo de atividade so
+   deixa escolher icone e nome. Aqui o dado existe, entao usar e vantagem,
+   nao copia. */
+function ngFraseDoPrazo(pt){
+  if(!pt || !pt.dias) return "Escolha a data. Fim de semana é pulado automaticamente.";
+  return "O normal pra " + String(pt.rot).toLowerCase() + " é " + pt.dias +
+         (pt.dias === 1 ? " dia útil" : " dias úteis") + ", e a data já vem assim. Troque se precisar.";
+}
+
+/* ---------------------------------------------------------------------
+   OS ATALHOS DE DATA
+
+   Tres defeitos aqui, e os tres vinham do mesmo lugar: o botao escrevia
+   a data no campo e desaparecia.
+
+   1. Nao ficava aceso. Clicou, nao viu nada acontecer, clicou de novo.
+   2. O rotulo mentia. "+2 dias" sorteia entre 2 e 3 dias uteis de
+      proposito, pra cinco cobrancas marcadas no mesmo dia nao cairem
+      todas na mesma quarta. So que ninguem contou isso pra pessoa.
+   3. Nao dizia que conta dia UTIL. O HubSpot resolve isso escrevendo a
+      unidade no proprio nome do atalho ("In 3 business days"), e e a
+      solucao certa: o rotulo carrega a regra em vez de esconder.
+
+   Agora cada atalho calcula a data UMA vez por desenho, escreve ela no
+   proprio botao, e fica aceso quando o campo esta com ela. O sorteio
+   continua, e agora e honesto: voce ve exatamente o dia que vai marcar
+   antes de clicar. */
+var NG_CHIPS = [
+  { k:"2d",   rot:"2 dias úteis",  de:2,  ate:3 },
+  { k:"1sem", rot:"1 semana",      de:6,  ate:9 },
+  { k:"15d",  rot:"15 dias",       de:12, ate:18 }
+];
+/* As datas de um desenho. Calculadas junto, e nao a cada clique, pra o
+   botao mostrar a mesma data que ele vai aplicar. */
+function ngDatasDosChips(){
+  var r = {}, i;
+  for(i=0;i<NG_CHIPS.length;i++)
+    r[NG_CHIPS[i].k] = ngDiasUteis(hojeISO(), ngSorteio(NG_CHIPS[i].de, NG_CHIPS[i].ate));
+  return r;
+}
+var NG_CHIP_DATAS = {};
+/* Uma data de atalho calculada na hora, sem passar pelo desenho. Serve a
+   folha de adiar, que oferece "daqui a 2 dias" sem ter a fila de chips. */
 function ngDataChip(k){
-  var h = hojeISO();
-  if(k === "2d")   return ngDiasUteis(h, ngSorteio(2, 3));    // 2 ou 3 dias uteis
-  if(k === "1sem") return ngDiasUteis(h, ngSorteio(6, 9));    // de 6 a 9
-  if(k === "15d")  return ngDiasUteis(h, ngSorteio(12, 18));  // de 12 a 18
+  for(var i=0;i<NG_CHIPS.length;i++)
+    if(NG_CHIPS[i].k === k) return ngDiasUteis(hojeISO(), ngSorteio(NG_CHIPS[i].de, NG_CHIPS[i].ate));
+  return hojeISO();
+}
+function ngChipsHTML(pref, dataAtual, desabilitado){
+  var h = "", i;
+  for(i=0;i<NG_CHIPS.length;i++){
+    var c = NG_CHIPS[i], dt = NG_CHIP_DATAS[c.k];
+    h += '<button type="button" class="pill' + (dt === dataAtual ? " on" : "") + '" ' +
+         'data-a="ngChipData" data-pref="' + pref + '" data-k="' + c.k + '"' +
+         (desabilitado ? ' disabled' : '') + '>' +
+         esc(c.rot) + ' <span class="tiny muted">' + esc(dataCurta(dt)) + '</span></button>';
+  }
   return h;
 }
 
@@ -5745,6 +5802,7 @@ function semProxPasso(n){
    --------------------------------------------------------------------- */
 function blocoProxPasso(pref, n, ligadoPadrao){
   var bloq = motivoBloqueio("crm_negocios");
+  NG_CHIP_DATAS = ngDatasDosChips();
   var lig  = bloq ? false : (ligadoPadrao !== false);
   var tipo = (n && n.proxTipo) || NG_SUGESTAO[(n && n.estagio) || ""] || "ligar";
   var pt   = proxTipoDe(tipo) || PROX_TIPOS[0];
@@ -5773,11 +5831,10 @@ function blocoProxPasso(pref, n, ligadoPadrao){
       '<select class="inp" id="' + pref + 'tipo" data-ch="ngChProxTipo" data-pref="' + pref + '"' + d + '>' +
         ngOpcoes(pares, tipo) +
       '</select>' +
-      '<div class="pills">' +
-        '<button type="button" class="pill" data-a="ngChipData" data-pref="' + pref + '" data-k="2d"' + d + '>+2 dias</button>' +
-        '<button type="button" class="pill" data-a="ngChipData" data-pref="' + pref + '" data-k="1sem"' + d + '>+1 semana</button>' +
-        '<button type="button" class="pill" data-a="ngChipData" data-pref="' + pref + '" data-k="15d"' + d + '>+15 dias</button>' +
+      '<div class="tiny muted" id="' + pref + 'frase">' + esc(ngFraseDoPrazo(pt)) + '</div>' +
+      '<div class="pills" id="' + pref + 'chips">' + ngChipsHTML(pref, data, !!bloq) +
         '<input class="inp" type="date" id="' + pref + 'data" value="' + esc(data) + '"' + d +
+          ' data-ch="ngChMudouData" data-pref="' + pref + '"' +
           ' min="' + esc(hojeISO()) + '" style="width:auto;flex:1;min-width:148px">' +
       '</div>' +
       '<div id="' + pref + 'horaBox"' + (pt.hora ? '' : ' hidden') + '>' +
@@ -5836,16 +5893,47 @@ ACOES.ngChProxTipo = function(el){
   var p = proxTipoDe(el.value);
   var hb = document.getElementById(pref + "horaBox");
   if(hb) hb.hidden = !(p && p.hora);
-  // Trocar o tipo re-sugere a data, mas só quando o campo ainda está
-  // vazio: sobrescrever data escolhida à mão é o jeito mais rápido de
-  // fazer alguém desistir do picklist.
+  /* Trocar o tipo re-sugere a data SEMPRE que ela ainda for uma sugestao
+     nossa, ou seja, o campo vazio ou marcado por um atalho. Data digitada
+     a mao e escolha da pessoa e nao se toca: sobrescrever isso e o jeito
+     mais rapido de alguem desistir do seletor. */
   var d = document.getElementById(pref + "data");
-  if(d && !d.value && p && p.dias) d.value = ngDiasUteis(hojeISO(), p.dias);
+  var f = document.getElementById(pref + "frase");
+  if(f) f.textContent = ngFraseDoPrazo(p);
+  if(!d || !p || !p.dias) return;
+  var ehNossa = !d.value;
+  for(var k in NG_CHIP_DATAS)
+    if(Object.prototype.hasOwnProperty.call(NG_CHIP_DATAS, k) && NG_CHIP_DATAS[k] === d.value) ehNossa = true;
+  for(var i=0;i<PROX_TIPOS.length;i++)
+    if(PROX_TIPOS[i].dias && ngDiasUteis(hojeISO(), PROX_TIPOS[i].dias) === d.value) ehNossa = true;
+  if(ehNossa){
+    d.value = ngDiasUteis(hojeISO(), p.dias);
+    ngAcenderChip(pref, d.value);
+  }
 };
 ACOES.ngChipData = function(el){
-  var d = document.getElementById(el.getAttribute('data-pref') + "data");
-  if(d) d.value = ngDataChip(el.getAttribute('data-k'));
+  var pref = el.getAttribute('data-pref');
+  var d = document.getElementById(pref + "data");
+  if(!d) return;
+  d.value = NG_CHIP_DATAS[el.getAttribute('data-k')] || hojeISO();
+  ngAcenderChip(pref, d.value);
 };
+/* Digitou a data na mao: nenhum atalho representa ela mais, entao todos
+   apagam. Chip aceso com data diferente no campo e pior que chip
+   nenhum, porque afirma uma coisa que nao e verdade. */
+ACOES.ngChMudouData = function(el){
+  ngAcenderChip(el.getAttribute('data-pref'), el.value);
+};
+function ngAcenderChip(pref, valor){
+  var w = document.getElementById(pref + "chips");
+  if(!w) return;
+  var bs = w.querySelectorAll("button");
+  for(var i=0;i<bs.length;i++){
+    var k = bs[i].getAttribute("data-k");
+    var aceso = k && NG_CHIP_DATAS[k] === valor;
+    bs[i].className = "pill" + (aceso ? " on" : "");
+  }
+}
 
 /* ---------------------------------------------------------------------
    REGISTRAR ATIVIDADE
