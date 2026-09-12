@@ -613,6 +613,23 @@ table.tb td.r,table.tb th.r{text-align:right;font-variant-numeric:tabular-nums}
 .cfg-ic{font-size:23px;line-height:1}
 .cfg-txt{margin:2px 0 0;font-size:13.5px;color:var(--text3);line-height:1.55}
 .cfg-ac{display:flex;gap:7px;flex-wrap:wrap;margin-top:auto;padding-top:9px}
+
+/* ---------- PIZZA DE MOTIVO DE PERDA ----------
+   Rosca a esquerda, legenda clicavel a direita. Abaixo de 620px a
+   legenda desce, porque legenda de 9 linhas espremida ao lado de um
+   circulo de 150px vira duas colunas de nada. */
+.pz{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+.pz-leg{flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.pz-it{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  background:none;border:0;border-radius:var(--rad-sm);padding:6px 8px;cursor:pointer;
+  color:var(--text2);font-family:var(--body);font-size:13px}
+.pz-it:hover{background:var(--card2)}
+.pz-cor{flex:0 0 auto;width:11px;height:11px;border-radius:3px}
+.pz-nm{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;line-height:1.3}
+.pz-vl{flex:0 0 auto;text-align:right;font-family:var(--disp);font-weight:700;
+  font-size:14px;color:var(--text);display:flex;flex-direction:column;line-height:1.25}
+.pz-sub{font-family:var(--body);font-size:11px;font-weight:400;color:var(--text3)}
+@media(max-width:620px){.pz{gap:12px}}
 </style>
 </head>
 <body>
@@ -988,7 +1005,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.20";
+var VERSAO = "2026-09-11.22";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -1927,6 +1944,7 @@ function motivoBloqueio(colecao, doc){
   /* Fonte muda a escolha que todo mundo ve no cadastro e vira linha do
      Painel, entao e configuracao de casa, igual funil. */
   if(colecao === "crm_origens") return ehAdmin() ? null : "Só o Admin mexe nas fontes.";
+  if(colecao === "crm_motivos") return ehAdmin() ? null : "Só o Admin mexe nos motivos de perda.";
   return "Coleção fora do CRM.";
 }
 
@@ -2432,7 +2450,8 @@ var ABAS = [
 function redesenhar(){
   if(!SESSAO){ pintarGate(); return; }
   ROTA = lerRota();
-  if((ROTA.tela === "acessos" || ROTA.tela === "funis" || ROTA.tela === "origens") && !ehAdmin())
+  if((ROTA.tela === "acessos" || ROTA.tela === "funis" || ROTA.tela === "origens" ||
+      ROTA.tela === "motivos") && !ehAdmin())
     ROTA.tela = (PERM && PERM.home) || "hoje";
   if(ROTA.tela === "modelos" && motivoBloqueio("crm_modelos") && ROTA.id === "novo") ROTA.id = "";
   if(!TELAS[ROTA.tela]) ROTA.tela = (PERM && PERM.home) || "hoje";
@@ -2828,7 +2847,7 @@ function boot(){
         document.getElementById('app').hidden = false;
         pintarCabecalho();
         carregarCache();
-        aplicarTiposDoCache(); aplicarModelosDoCache(); aplicarOrigensDoCache();
+        aplicarTiposDoCache(); aplicarModelosDoCache(); aplicarOrigensDoCache(); aplicarMotivosDoCache();
         if(!location.hash) location.hash = "#/" + ((PERM && PERM.home) || "hoje");
         redesenhar();
         // Revalida contra a lista de acessos. Lista VAZIA não derruba
@@ -2837,6 +2856,7 @@ function boot(){
         carregarTipos().then(function(tp){ if(tp.length) redesenhar(); });
         carregarModelos();
         carregarOrigens().then(function(o){ if(o.length) redesenhar(); });
+        carregarMotivos();
         carregarAcessos().then(function(acc){
           if(!acc.length){
             if(!SESSAO.recuperacao) avisoBarra("Não consegui ler a lista de acessos agora. Você continua dentro com o perfil da última vez.");
@@ -3184,6 +3204,25 @@ var AJUDA = {
     x: "Alguém que já te trouxe dois negócios ganhos ou mais e passou de 120 dias sem trazer nada.\n\n" +
        "Não é cobrança, é lembrete. Quem já abriu porta uma vez costuma responder rápido, e é o " +
        "contato que mais escapa da fila do dia."
+  },
+  motivos_perda: {
+    t: "Motivos de perda",
+    x: "O que o vendedor escolhe quando marca um negócio como perdido. É a pergunta mais cara do " +
+       "comercial: sem ela, \"perdemos 12 negócios\" é lamentação, não diagnóstico.\n\n" +
+       "Cada motivo carrega três coisas: em qual funil aparece, em quantos dias volta a valer a " +
+       "pena tentar de novo (e aí o sistema cria a tarefa sozinho), e se ele conta como derrota " +
+       "na taxa de ganho.\n\n" +
+       "Não existe \"outros\", e isso não é esquecimento. Em três meses essa opção come mais da " +
+       "metade das respostas e o gráfico do Painel deixa de responder qualquer coisa."
+  },
+  reabrir: {
+    t: "Quando volta a valer a pena",
+    x: "Perder por preço hoje é diferente de perder por falta de verba: no segundo caso, daqui a " +
+       "90 dias o orçamento virou e vale ligar de novo.\n\n" +
+       "Com um prazo aqui, marcar o negócio como perdido já cria a tarefa de retomar naquela data. " +
+       "É o que transforma perda em fila, em vez de esquecimento.\n\n" +
+       "\"Perguntar a data na hora\" é pra quando só o cliente sabe, tipo quando ele diz que fica " +
+       "pra próxima edição."
   },
   fontes: {
     t: "Fontes de negócio",
@@ -7836,16 +7875,30 @@ ACOES.ngPerdido = function(el){
   var n = achar("negocios", el.getAttribute('data-id'));
   if(!n) return;
   var mot = [];
-  for(var i=0;i<MOTIVOS_PERDA.length;i++){
-    var m = MOTIVOS_PERDA[i];
-    if(m.funil !== "ambos" && m.funil !== n.tipo) continue;
-    mot.push([m.k, m.rot]);
+  var doFunil = motivosDoFunil(n.tipo);
+  for(var i=0;i<doFunil.length;i++){
+    var m = doFunil[i];
+    mot.push([m.k, m.rot]);   // motivosDoFunil ja filtrou por funil e por ligado
   }
   folha("Fechar como perdido",
     '<form class="form" id="ngF" data-a="ngSalvarPerdido" data-id="' + esc(n.id) + '">' +
-      '<div class="fld"><label>O que aconteceu <span class="req">*</span></label>' +
-        '<select class="inp" id="ngPmot" data-ch="ngChMotivoPerda">' + ngOpcoes(mot, "", "escolha") + '</select>' +
-        '<div class="hint" id="ngPhint">Sem opção "outros" de propósito. Se nenhuma servir, a mais próxima mais a observação embaixo resolve.</div></div>' +
+      '<div class="fld">' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">' +
+          '<label style="margin:0">O que aconteceu <span class="req">*</span>' + ajuda("motivos_perda") + '</label>' +
+          /* O "+" mora AQUI, e nao so em Configuracoes. A falta de um
+             motivo aparece no segundo em que a pessoa abre a lista e nao
+             acha o que aconteceu de verdade. Se ela tiver que sair da
+             folha pra criar, escolhe o mais parecido, e o grafico do
+             Painel passa a medir a coisa errada pra sempre. */
+          (ehAdmin()
+            ? '<button type="button" class="btn btn-sm btn-ghost" data-a="moAbrirNovo">+ Novo motivo</button>'
+            : '') +
+        '</div>' +
+        '<select class="inp" id="ngPmot" data-ch="ngChMotivoPerda" style="margin-top:7px">' +
+          ngOpcoes(mot, "", "escolha") + '</select>' +
+        '<div class="hint" id="ngPhint">Sem opção "outros" de propósito: em três meses ela come mais da metade ' +
+        'das respostas e a análise morre. Se nenhuma servir, ' +
+        (ehAdmin() ? 'crie uma ali em cima.' : 'peça pro admin criar uma.') + '</div></div>' +
       '<div class="fld" id="ngPdataBox" hidden><label>Quando vale a pena voltar</label>' +
         '<input class="inp" type="date" id="ngPreabrir" value="' + esc(somaDias(hojeISO(), 90)) + '" min="' + hojeISO() + '">' +
         '<div class="hint">Virá uma tarefa de retomar nessa data.</div></div>' +
@@ -10595,33 +10648,100 @@ function pnlConversaoHTML(tipo, fechados){
   return h + '</div>';
 }
 
+/* ---------------------------------------------------------------------
+   A PIZZA DE MOTIVO DE PERDA
+
+   Desenhada a mao em SVG, sem biblioteca: uma rosca de 8 fatias custa
+   trinta linhas, e carregar uma biblioteca de grafico por causa dela
+   pesaria mais que o CRM inteiro. Sem biblioteca tambem nao ha CDN pra
+   cair no meio de uma reuniao.
+
+   ROSCA E NAO PIZZA CHEIA porque o buraco do meio guarda o total, que e o
+   numero que responde a pergunta antes de qualquer fatia.
+
+   AS FATIAS SAO POR R$, nao por quantidade. Tres contratos pequenos
+   perdidos por preco somam menos que uma cota perdida por falta de verba,
+   e uma pizza por contagem diria o contrario com a maior cara de certeza.
+   A contagem aparece na legenda, do lado.
+
+   FATIA MINIMA VISIVEL: abaixo de 1,5% do total a fatia sumiria e a
+   legenda mostraria uma cor que nao existe no desenho. Nesses casos ela
+   e desenhada no minimo, e a soma visual passa a nao bater com o R$ por
+   uma fracao de grau. Mentir um pouco no desenho e melhor que mostrar
+   legenda orfa. */
+var PNL_CORES = ["#C8FF00","#FF6A55","#5B9BD5","#FFB800","#00FF88",
+                 "#B07BE0","#FF8FB1","#7FD4C1","#D4A76A"];
+
+function pnlPizza(fatias, total, rotuloCentro){
+  if(!total) return "";
+  var R = 54, r = 33, cx = 60, cy = 60;
+  var ang = -Math.PI / 2, sv = "", i;
+
+  for(i=0;i<fatias.length;i++){
+    var parte = fatias[i].valor / total;
+    if(parte < 0.015) parte = 0.015;
+    var a2 = ang + parte * Math.PI * 2;
+    /* Fatia de 100% nao existe em arco: comecando e terminando no mesmo
+       ponto, o caminho fecha em nada e a rosca some. Circulo inteiro. */
+    if(fatias.length === 1){
+      sv += '<circle cx="' + cx + '" cy="' + cy + '" r="' + ((R + r) / 2) + '" fill="none" ' +
+            'stroke="' + PNL_CORES[0] + '" stroke-width="' + (R - r) + '"/>';
+      break;
+    }
+    var x1 = cx + R * Math.cos(ang),  y1 = cy + R * Math.sin(ang);
+    var x2 = cx + R * Math.cos(a2),   y2 = cy + R * Math.sin(a2);
+    var x3 = cx + r * Math.cos(a2),   y3 = cy + r * Math.sin(a2);
+    var x4 = cx + r * Math.cos(ang),  y4 = cy + r * Math.sin(ang);
+    var grande = (a2 - ang) > Math.PI ? 1 : 0;
+    sv += '<path d="M' + x1.toFixed(2) + ' ' + y1.toFixed(2) +
+          ' A' + R + ' ' + R + ' 0 ' + grande + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2) +
+          ' L' + x3.toFixed(2) + ' ' + y3.toFixed(2) +
+          ' A' + r + ' ' + r + ' 0 ' + grande + ' 0 ' + x4.toFixed(2) + ' ' + y4.toFixed(2) +
+          ' Z" fill="' + PNL_CORES[i % PNL_CORES.length] + '" opacity=".92"/>';
+    ang = a2;
+  }
+  return '<svg viewBox="0 0 120 120" style="width:150px;height:150px;flex:0 0 auto" ' +
+    'role="img" aria-label="' + esc(rotuloCentro) + ' perdidos, repartidos por motivo">' +
+    sv +
+    '<text x="60" y="57" text-anchor="middle" font-size="15" font-weight="700" ' +
+      'fill="var(--text)" font-family="Inter,sans-serif">' + esc(rotuloCentro) + '</text>' +
+    '<text x="60" y="71" text-anchor="middle" font-size="8" ' +
+      'fill="var(--text3)" font-family="Inter,sans-serif">perdidos</text>' +
+  '</svg>';
+}
+
 function pnlMotivosHTML(G){
   if(!G.motivos.length){
     return '<div class="h3" style="margin-top:18px">Motivo de perda</div>' +
            '<div class="tiny muted">Nenhuma perda real nos últimos 12 meses.</div>';
   }
-  var maior = G.motivos[0].valor || 1, i;
+  var i, total = 0;
+  for(i=0;i<G.motivos.length;i++) total += G.motivos[i].valor;
+
   var h = '<div class="h3" style="margin-top:18px">Motivo de perda, por R$ perdido</div>' +
-    '<div class="tiny muted" style="margin-bottom:8px">Ranqueado por dinheiro, nunca por quantidade: ' +
+    '<div class="tiny muted" style="margin-bottom:10px">Repartido por dinheiro, nunca por quantidade: ' +
     'três contratos pequenos perdidos por preço somam menos que uma cota perdida por verba. ' +
-    'As duas colunas ficam visíveis.</div><div class="funnel">';
-  for(i = 0; i < G.motivos.length; i++){
+    'A contagem fica na legenda.</div>';
+
+  h += '<div class="pz">' + pnlPizza(G.motivos, total, brlCurto(total)) + '<div class="pz-leg">';
+  for(i=0;i<G.motivos.length;i++){
     var m = G.motivos[i];
     var mp = motivoPerdaDe(m.k);
-    var larg = Math.max(2, Math.round((m.valor / maior) * 100));
-    h += '<button style="display:block;width:100%;text-align:left" data-a="verLista" data-lista="motivo" data-k="' + esc(m.k) + '">' +
-      '<div class="fn-row">' +
-        '<div class="fn-lbl">' + esc(mp ? mp.rot : "sem motivo") + '</div>' +
-        '<div class="fn-bar"><i style="width:' + larg + '%"></i></div>' +
-        '<div class="fn-val">' + esc(brlCurto(m.valor)) +
-          '<div class="tiny muted" style="font-weight:400">' + m.n + (m.n === 1 ? ' negócio' : ' negócios') + '</div>' +
-        '</div>' +
-      '</div>' +
+    var pctF = total ? Math.round((m.valor / total) * 100) : 0;
+    h += '<button class="pz-it" data-a="verLista" data-lista="motivo" data-k="' + esc(m.k) + '">' +
+      '<span class="pz-cor" style="background:' + PNL_CORES[i % PNL_CORES.length] + '"></span>' +
+      '<span class="pz-nm">' + esc(mp ? mp.rot : "sem motivo") +
+        '<span class="pz-sub">' + m.n + (m.n === 1 ? ' negócio' : ' negócios') + '</span></span>' +
+      '<span class="pz-vl">' + esc(brlCurto(m.valor)) +
+        '<span class="pz-sub">' + pctF + '%</span></span>' +
     '</button>';
   }
-  return h + '</div><div class="tiny muted" style="margin-top:6px">' +
+  h += '</div></div>';
+
+  return h + '<div class="tiny muted" style="margin-top:8px">' +
     'R$ perdido usa valor total de contrato na agência e valor de cota no patrocínio, ' +
-    'só pra ranquear. Não é caixa.</div>';
+    'só pra repartir a pizza. Não é caixa. Desqualificado não entra aqui: ' +
+    'quando foi você que disse não, não é perda.</div>';
 }
 
 function pnlTicketHTML(G){
@@ -14427,6 +14547,19 @@ var CONFIG_ITENS = [
       return n + (n === 1 ? " fonte ativa" : " fontes ativas");
     } },
 
+  { k:"motivos", ic:"📉", rot:"Motivos de perda",
+    sub:"O que o vendedor escolhe ao perder",
+    txt:"Vira o gráfico de perdas no Painel e a tarefa de retomar quando vale a pena voltar. " +
+        "Não existe a opção \"outros\" de propósito: em três meses ela come mais da metade das " +
+        "respostas e a análise morre. Se faltar um motivo, crie.",
+    novo:"motivos/novo", ver:"motivos",
+    pode:function(){ return motivoBloqueio("crm_motivos"); },
+    conta:function(){
+      var n = 0;
+      for(var i=0;i<MOTIVOS_PERDA.length;i++) if(MOTIVOS_PERDA[i].ativo !== false) n++;
+      return n + (n === 1 ? " motivo ativo" : " motivos ativos");
+    } },
+
   { k:"acessos", ic:"🔑", rot:"Acessos",
     sub:"Quem entra no CRM e com que poder",
     txt:"Cada pessoa com a senha dela, e o perfil decidindo o que ela pode fazer. " +
@@ -15145,6 +15278,279 @@ ACOES.orLigar = function(el){
   gravar("crm_origens", k, doc).then(function(){
     orGuardarLocal(doc);
     toast(ligando ? "Fonte ligada" : "Fonte desligada. Os negócios que já usam ela continuam como estão.", "ok");
+    redesenhar();
+  });
+};
+
+/* ============ 18-motivos ============ */
+/* =====================================================================
+   CRM LIME - MOTIVOS DE PERDA
+
+   A pergunta que este mecanismo responde e a mais cara do comercial: a
+   gente perde por que? Sem ela, "perdemos 12 negocios" e uma lamentacao,
+   nao um diagnostico.
+
+   COMO ERA, E POR QUE MUDOU
+   Eram nove motivos escritos no codigo. O desenho ja era bom: cada um
+   carrega quantos dias ate valer a pena voltar, em qual funil ele
+   aparece, e se sai da conta da taxa de ganho. O que faltava era a casa
+   poder mexer. O RD Station resolve isso na configuracao do funil, e com
+   razao: motivo de perda e vocabulario do negocio, muda de ano em ano, e
+   codigo publicado nao acompanha isso.
+
+   POR QUE NAO EXISTE "OUTROS"
+   Continua nao existindo, e e a decisao mais importante daqui. "Outros"
+   come 60% das respostas em tres meses e mata a analise inteira. Se
+   nenhum motivo servir, o certo e criar um, e agora da.
+
+   POR QUE NAO SE APAGA
+   Negocio perdido ja aponta pra ele. Apagar deixaria o Painel com uma
+   fatia sem nome e a lista de perdidos sem explicacao. Desliga.
+   ===================================================================== */
+
+var MOTIVOS_SEMENTE = JSON.parse(JSON.stringify(MOTIVOS_PERDA));
+var MOTIVOS_DOCS = [];
+
+function aplicarMotivos(docs){
+  MOTIVOS_PERDA = JSON.parse(JSON.stringify(MOTIVOS_SEMENTE));
+  var pos = {}, i;
+  for(i=0;i<MOTIVOS_PERDA.length;i++){ MOTIVOS_PERDA[i].daCasa = true; pos[MOTIVOS_PERDA[i].k] = i; }
+
+  for(i=0;i<(docs||[]).length;i++){
+    var d = docs[i];
+    if(!d || !d.k) continue;
+    var m = {
+      k: d.k,
+      rot: String(d.rot || d.k).slice(0, 60),
+      /* reabrir: dias ate a tarefa de retomar. 0 = nao volta. A string
+         "informar" faz a folha pedir a data na hora, que e o caso de
+         "so na proxima", em que so o cliente sabe quando. */
+      reabrir: (d.reabrir === "informar") ? "informar" : (parseInt(d.reabrir, 10) || 0),
+      funil: d.funil || "ambos",
+      foraDaTaxa: !!d.foraDaTaxa,
+      ativo: d.ativo !== false
+    };
+    if(pos[d.k] !== undefined){
+      var v = MOTIVOS_PERDA[pos[d.k]];
+      v.rot = m.rot; v.reabrir = m.reabrir; v.funil = m.funil;
+      v.foraDaTaxa = m.foraDaTaxa; v.ativo = m.ativo;
+    } else {
+      m.daCasa = false;
+      MOTIVOS_PERDA.push(m);
+      pos[d.k] = MOTIVOS_PERDA.length - 1;
+    }
+  }
+  return MOTIVOS_PERDA;
+}
+/* Os que aparecem na folha de perder, ja filtrados pelo funil do negocio.
+   Desligado continua existindo pra desenhar perda antiga. */
+function motivosDoFunil(tipoK){
+  var r = [], i;
+  for(i=0;i<MOTIVOS_PERDA.length;i++){
+    var m = MOTIVOS_PERDA[i];
+    if(m.ativo === false) continue;
+    if(m.funil && m.funil !== "ambos" && m.funil !== tipoK) continue;
+    r.push(m);
+  }
+  return r;
+}
+function carregarMotivos(){
+  if(!FB_ON || !AUTH_OK) return Promise.resolve([]);
+  return db.collection("crm_motivos").get().then(function(snap){
+    SYNC.lidas += Math.max(snap.size, 1);
+    var r = [];
+    snap.forEach(function(d){ var o = d.data(); o.id = d.id; if(!o.k) o.k = d.id; r.push(o); });
+    MOTIVOS_DOCS = r;
+    guardar("motivos", r);
+    aplicarMotivos(r);
+    return r;
+  }).catch(function(e){ explicarErro(e); return []; });
+}
+function aplicarMotivosDoCache(){
+  var c = recuperar("motivos", null);
+  if(c && c.length){ MOTIVOS_DOCS = c; aplicarMotivos(c); }
+}
+function moGuardarLocal(doc){
+  var achou = false, i;
+  for(i=0;i<MOTIVOS_DOCS.length;i++) if(MOTIVOS_DOCS[i].k === doc.k){ MOTIVOS_DOCS[i] = doc; achou = true; }
+  if(!achou) MOTIVOS_DOCS.push(doc);
+  guardar("motivos", MOTIVOS_DOCS);
+  aplicarMotivos(MOTIVOS_DOCS);
+}
+function moChave(rot, usadas){
+  var base = chave(rot).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 20);
+  if(!base) base = "motivo";
+  var k = base, i = 2;
+  while(usadas && usadas.indexOf(k) > -1){ k = base + "_" + i; i++; }
+  return k;
+}
+function moUso(k){
+  var n = 0, ns = lista("negocios");
+  for(var i=0;i<ns.length;i++) if(!ns[i].arquivado && ns[i].motivoPerda === k) n++;
+  return n;
+}
+function moRotFunil(f){
+  if(f === "ambos" || !f) return "Todos os funis";
+  return rotTipo(f);
+}
+function moRotReabrir(r){
+  if(r === "informar") return "pergunta a data na hora";
+  if(!r) return "não volta";
+  return "volta em " + r + " dias";
+}
+
+TELAS.motivos = function(){
+  var bloq = motivoBloqueio("crm_motivos");
+  if(!ehAdmin()){
+    return '<div class="empty"><div class="ei">🔒</div><div class="et">Só o Admin mexe nos motivos de perda</div>' +
+      '<div class="ex">O motivo de perda é o vocabulário que o time inteiro usa pra explicar derrota, ' +
+      'e ele vira análise no Painel. Mudar isso muda o que todo mundo responde.</div>' +
+      '<button class="btn" data-a="ir" data-r="hoje">Voltar pro Hoje</button></div>';
+  }
+
+  if(ROTA.id === "novo" && !bloq) DEPOIS.push(function(){
+    if(location.hash.indexOf("/novo") > -1) location.hash = "#/motivos";
+    moFolha(null);
+  });
+
+  var h = '<div class="card-head" style="margin-bottom:0"><div>' +
+    '<div class="sec-title">Motivos de perda' + ajuda("motivos_perda") + '</div>' +
+    '<div class="sec-sub">O que o vendedor escolhe quando marca um negócio como perdido. ' +
+    'Vira o gráfico de perdas no Painel.</div></div>' +
+    '<div>' + (bloq
+      ? '<span class="tiny" style="color:var(--text3)">' + esc(bloq) + '</span>'
+      : '<button class="btn btn-primary" data-a="moNovo">+ Motivo</button>') +
+    '</div></div>';
+
+  h += '<div class="card"><div class="tw"><table class="tb"><thead><tr>' +
+    '<th>Motivo</th><th>Funil</th><th>Volta a valer a pena</th>' +
+    '<th class="r">Perdas</th><th></th>' +
+    '</tr></thead><tbody>';
+  for(var i=0;i<MOTIVOS_PERDA.length;i++){
+    var m = MOTIVOS_PERDA[i], uso = moUso(m.k), off = m.ativo === false;
+    h += '<tr>' +
+      '<td><b>' + esc(m.rot) + '</b>' +
+        (off ? ' <span class="tag">desligado</span>' : '') +
+        (m.daCasa ? ' <span class="tag tag-lime">da casa</span>' : '') +
+        (m.foraDaTaxa ? '<div class="cel-sub">fora da taxa de ganho</div>' : '') + '</td>' +
+      '<td class="tiny">' + esc(moRotFunil(m.funil)) + '</td>' +
+      '<td class="tiny">' + esc(moRotReabrir(m.reabrir)) + '</td>' +
+      '<td class="r mono-num">' + (uso || '<span class="muted">-</span>') + '</td>' +
+      '<td class="r">' + (bloq ? '' :
+        '<button class="btn btn-sm" data-a="moEditar" data-k="' + esc(m.k) + '">Editar</button> ' +
+        '<button class="btn btn-sm btn-ghost" data-a="moLigar" data-k="' + esc(m.k) + '">' +
+        (off ? "Ligar" : "Desligar") + '</button>') + '</td>' +
+    '</tr>';
+  }
+  h += '</tbody></table></div></div>';
+
+  h += '<div class="card"><div class="tiny muted">' +
+    'Não existe a opção "outros", e isso é de propósito: em três meses ela come mais da metade das ' +
+    'respostas e a análise morre. Se nenhum motivo servir, crie um.<br><br>' +
+    '"Fora da taxa de ganho" é pra desqualificação: quando foi você que disse não, contar como ' +
+    'derrota pune a única disciplina que faz um time pequeno sobreviver.</div></div>';
+  return h;
+};
+
+function moFolha(k){
+  var novo = !k, m = novo ? null : motivoPerdaDe(k);
+  var uso = novo ? 0 : moUso(k);
+  var funis = tiposAtivos(), ops = '<option value="ambos"' +
+    (!m || m.funil === "ambos" ? ' selected' : '') + '>Todos os funis</option>', i;
+  for(i=0;i<funis.length;i++)
+    ops += '<option value="' + esc(funis[i].k) + '"' +
+           (m && m.funil === funis[i].k ? ' selected' : '') + '>Só em ' + esc(funis[i].rot) + '</option>';
+
+  var rea = m ? m.reabrir : 0;
+  var reaOps = [["0","Não volta"],["30","Em 30 dias"],["60","Em 60 dias"],["90","Em 90 dias"],
+                ["180","Em 180 dias"],["informar","Perguntar a data na hora"]];
+  var reaHTML = "";
+  for(i=0;i<reaOps.length;i++)
+    reaHTML += '<option value="' + reaOps[i][0] + '"' +
+               (String(rea) === reaOps[i][0] ? ' selected' : '') + '>' + esc(reaOps[i][1]) + '</option>';
+
+  folha(novo ? "Motivo de perda novo" : "Editar motivo",
+    '<form class="form" id="moF" data-a="moSalvar" data-k="' + esc(novo ? "" : k) + '">' +
+      '<div class="fld"><label>O motivo, do jeito que o vendedor diria</label>' +
+        '<input class="inp" id="moRot" maxlength="60" autocomplete="off" ' +
+          'placeholder="Escolheu fazer internamente" value="' + esc(m ? m.rot : "") + '">' +
+        '<div class="hint">' + (uso
+          ? 'Renomear troca o texto nas ' + uso + (uso === 1 ? ' perda' : ' perdas') + ' que já usam esse motivo.'
+          : 'Frase curta e concreta. "Preço" não diz nada; "achou caro" diz.') + '</div></div>' +
+
+      '<div class="fld"><label>Em qual funil ele aparece</label>' +
+        '<select class="inp" id="moFunil">' + ops + '</select>' +
+        '<div class="hint">Motivo que só existe num funil polui a escolha do outro. ' +
+        '"Perdeu a janela do evento" não faz sentido num contrato de agência.</div></div>' +
+
+      '<div class="fld"><label>Quando volta a valer a pena' + ajuda("reabrir") + '</label>' +
+        '<select class="inp" id="moReabrir">' + reaHTML + '</select>' +
+        '<div class="hint">Com um prazo, o sistema cria sozinho a tarefa de retomar naquela data. ' +
+        'É o que transforma perda em fila, em vez de esquecimento.</div></div>' +
+
+      '<div class="fld"><label style="display:flex;gap:9px;align-items:center;text-transform:none;' +
+        'font-size:13px;color:var(--text2)">' +
+        '<input type="checkbox" id="moFora" style="width:18px;height:18px"' +
+        (m && m.foraDaTaxa ? ' checked' : '') + '> Não conta como derrota na taxa de ganho</label>' +
+        '<div class="hint">Marque só pra desqualificação, quando foi VOCÊ que disse não. ' +
+        'Marcar nos outros infla a taxa de ganho e o número para de servir.</div></div>' +
+
+      '<div id="moErr" class="tiny" style="color:var(--red)"></div>' +
+    '</form>',
+    '<button class="btn btn-ghost" data-a="fecharFolha">Cancelar</button>' +
+    '<button class="btn btn-primary" type="submit" form="moF">' + (novo ? "Criar" : "Salvar") + '</button>');
+}
+ACOES.moNovo = function(){ moFolha(null); };
+ACOES.moEditar = function(el){ moFolha(el.getAttribute('data-k')); };
+ACOES.moAbrirNovo = function(){ fecharFolha(); ir("motivos/novo"); };
+
+ACOES.moSalvar = function(f){
+  var k = f.getAttribute('data-k') || "";
+  var err = document.getElementById('moErr');
+  function ruim(msg){ if(err) err.textContent = msg; else toast(msg, "bad"); }
+
+  var bloq = motivoBloqueio("crm_motivos");
+  if(bloq){ ruim(bloq); return; }
+
+  var rot = String((document.getElementById('moRot')||{}).value || "").trim().slice(0,60);
+  if(rot.length < 3){ ruim("Escreva o motivo."); return; }
+
+  var novo = !k;
+  if(novo){
+    for(var i=0;i<MOTIVOS_PERDA.length;i++)
+      if(chave(MOTIVOS_PERDA[i].rot) === chave(rot)){
+        ruim('Já existe um motivo chamado "' + MOTIVOS_PERDA[i].rot + '".'); return;
+      }
+    var usadas = [];
+    for(i=0;i<MOTIVOS_PERDA.length;i++) usadas.push(MOTIVOS_PERDA[i].k);
+    k = moChave(rot, usadas);
+  }
+  var velho = motivoPerdaDe(k);
+  var reaV = String((document.getElementById('moReabrir')||{}).value || "0");
+  var doc = {
+    k:k, rot:rot,
+    funil: String((document.getElementById('moFunil')||{}).value || "ambos"),
+    reabrir: reaV === "informar" ? "informar" : (parseInt(reaV, 10) || 0),
+    foraDaTaxa: !!(document.getElementById('moFora') || {}).checked,
+    ativo: velho ? (velho.ativo !== false) : true
+  };
+  fecharFolha();
+  gravar("crm_motivos", k, doc).then(function(){
+    moGuardarLocal(doc);
+    toast(novo ? "Motivo criado" : "Motivo salvo", "ok");
+    redesenhar();
+  });
+};
+
+ACOES.moLigar = function(el){
+  var k = el.getAttribute('data-k'), m = motivoPerdaDe(k);
+  if(!m) return;
+  var ligando = m.ativo === false;
+  var doc = { k:k, rot:m.rot, funil:m.funil || "ambos", reabrir:m.reabrir || 0,
+              foraDaTaxa: !!m.foraDaTaxa, ativo:ligando };
+  gravar("crm_motivos", k, doc).then(function(){
+    moGuardarLocal(doc);
+    toast(ligando ? "Motivo ligado" : "Motivo desligado. As perdas antigas continuam com ele.", "ok");
     redesenhar();
   });
 };

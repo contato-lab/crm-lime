@@ -256,6 +256,24 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Os motivos de perda que a casa cadastra. Vocabulario, nao dado de
+    // cliente: rotulo, em qual funil aparece, em quantos dias reabrir, e
+    // se conta na taxa de ganho.
+    //
+    // NAO TEM DELETE: negocio perdido aponta pro motivo, e apagar deixaria
+    // o grafico do Painel com uma fatia sem nome. Desligar e ativo:false.
+    match /crm_motivos/{id} {
+      allow read: if ok();
+      allow create, update: if ok()
+        && request.resource.data.keys().size() <= 10
+        && request.resource.data.k is string
+        && request.resource.data.k.size() <= 24
+        && request.resource.data.rot is string
+        && request.resource.data.rot.size() <= 60
+        && request.resource.data.ativo is bool;
+      allow delete: if false;
+    }
+
     // Qualquer outro caminho fica fechado.
     match /{document=**} {
       allow read, write: if false;
