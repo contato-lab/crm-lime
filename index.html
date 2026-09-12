@@ -1005,7 +1005,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.22";
+var VERSAO = "2026-09-11.23";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -13907,8 +13907,7 @@ TELAS.funis = function(){
     h += '<div class="card' + (desligado ? '' : ' card-lime') + '" style="margin-bottom:12px">' +
       '<div class="card-head"><div>' +
         '<div class="h3" style="margin:0">' + esc(t.ic || "📁") + ' ' + esc(t.rotLongo || t.rot) +
-          (desligado ? ' <span class="tag">desligado</span>' : '') +
-          (t.daCasa ? ' <span class="tag tag-lime">da casa</span>' : '') + '</div>' +
+          (desligado ? ' <span class="tag">desligado</span>' : '') + '</div>' +
         '<div class="tiny muted" style="margin-top:4px">' +
           (t.dinheiro === "recorrente" ? "mensalidade que se repete" : "valor que entra uma vez") +
           ' · ' + f.length + (f.length === 1 ? ' etapa' : ' etapas') +
@@ -13917,9 +13916,10 @@ TELAS.funis = function(){
         '</div>' +
       '</div><div class="pills">' +
         '<button class="btn btn-sm" data-a="fnEditar" data-k="' + esc(t.k) + '">Editar</button>' +
-        (t.daCasa ? '' :
-          '<button class="btn btn-sm btn-ghost" data-a="fnLigar" data-k="' + esc(t.k) + '">' +
-          (desligado ? "Ligar" : "Desligar") + '</button>') +
+        (t.daCasa
+          ? '<span class="tiny muted">não dá pra desligar</span>'
+          : '<button class="btn btn-sm btn-ghost" data-a="fnLigar" data-k="' + esc(t.k) + '">' +
+            (desligado ? "Ligar" : "Desligar") + '</button>') +
       '</div></div>';
 
     /* As etapas em linha, com a chance e o teto de silencio de cada uma.
@@ -13947,7 +13947,10 @@ TELAS.funis = function(){
 
   h += '<div class="card"><div class="tiny muted">' +
     'A chance de cada etapa é o que o Painel usa pra estimar o mês. O teto de silêncio é quantos ' +
-    'dias sem contato o sistema aguenta antes de puxar o negócio pra fila do Hoje.</div></div>';
+    'dias sem contato o sistema aguenta antes de puxar o negócio pra fila do Hoje.<br><br>' +
+    'Agência e Patrocínio não têm botão de desligar porque são os dois que vêm escritos dentro do ' +
+    'CRM, e são eles que o sistema desenha quando abre sem internet. Renomear, trocar o ícone e ' +
+    'mudar as etapas, pode. Os que você criar depois ligam e desligam à vontade.</div></div>';
   return h;
 };
 
@@ -14352,8 +14355,7 @@ TELAS.modelos = function(){
     h += '<div class="card" style="margin-bottom:9px' + (off ? ';opacity:.6' : '') + '">' +
       '<div class="card-head" style="margin-bottom:6px"><div style="min-width:0">' +
         '<div style="font-weight:600;color:var(--text)">' + esc(m.rot) +
-          (off ? ' <span class="tag">desligado</span>' : '') +
-          (m.daCasa ? ' <span class="tag tag-lime">da casa</span>' : '') + '</div>' +
+          (off ? ' <span class="tag">desligado</span>' : '') + '</div>' +
         '<div class="tiny muted">' + esc(mdRotQuando(m.quando)) + '</div>' +
       '</div><div class="pills">' +
         (podeMexer
@@ -15192,12 +15194,9 @@ TELAS.origens = function(){
     '</tr></thead><tbody>';
   for(var i=0;i<ORIGENS.length;i++){
     var k = ORIGENS[i][0], off = !!ORIGENS_OFF[k], uso = orUso(k);
-    var daCasa = false;
-    for(var j=0;j<ORIGENS_SEMENTE.length;j++) if(ORIGENS_SEMENTE[j][0] === k) daCasa = true;
     h += '<tr>' +
       '<td><b>' + esc(ORIGENS[i][1]) + '</b>' +
-        (off ? ' <span class="tag">desligada</span>' : '') +
-        (daCasa ? ' <span class="tag tag-lime">da casa</span>' : '') + '</td>' +
+        (off ? ' <span class="tag">desligada</span>' : '') + '</td>' +
       '<td class="r mono-num">' + (uso || '<span class="muted">-</span>') + '</td>' +
       '<td class="r">' + (bloq ? '' :
         '<button class="btn btn-sm" data-a="orEditar" data-k="' + esc(k) + '">Renomear</button> ' +
@@ -15431,7 +15430,6 @@ TELAS.motivos = function(){
     h += '<tr>' +
       '<td><b>' + esc(m.rot) + '</b>' +
         (off ? ' <span class="tag">desligado</span>' : '') +
-        (m.daCasa ? ' <span class="tag tag-lime">da casa</span>' : '') +
         (m.foraDaTaxa ? '<div class="cel-sub">fora da taxa de ganho</div>' : '') + '</td>' +
       '<td class="tiny">' + esc(moRotFunil(m.funil)) + '</td>' +
       '<td class="tiny">' + esc(moRotReabrir(m.reabrir)) + '</td>' +
