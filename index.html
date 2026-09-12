@@ -988,7 +988,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.19";
+var VERSAO = "2026-09-11.20";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -4570,8 +4570,20 @@ function cardNegocio(n, ctx){
   var apoio = fnApoio(n);
   var permuta = (ehUnico(n) && n.pt && n.pt.permuta) ? n.pt.permuta : 0;
 
+  /* ARRASTAR.
+
+     O quadro ja tinha as classes .kb-card.dragging e .kb-col.drop no
+     sistema de design, escritas e nunca usadas: o arraste foi cortado no
+     comeco por causa do celular, onde o gesto dispara sozinho no meio da
+     rolagem. Como o funil e tela de notebook, o arraste volta SO no
+     computador, e o toque continua existindo pros dois.
+
+     Negocio fechado nao arrasta: o estagio em que ele fechou e a resposta
+     de onde o funil vaza, e mover depois apaga isso. */
+  var podeArrastar = ctx === "kanban" && n.status === "aberto" && !motivoBloqueio("crm_negocios");
   var abre = ctx === "kanban"
-    ? 'data-a="funilMover" data-id="' + esc(n.id) + '"'
+    ? 'data-a="funilMover" data-id="' + esc(n.id) + '"' +
+      (podeArrastar ? ' draggable="true" data-arr="' + esc(n.id) + '"' : '')
     : 'data-a="funilAbrirNegocio" data-id="' + esc(n.id) + '"';
   var dim = congelado ? "opacity:.55;" : "";
 
@@ -4839,7 +4851,7 @@ TELAS.funil = function(){
     }
     // Coluna com negocio mas sem valor mostra "a definir", nunca R$ 0:
     // R$ 0 parece defeito e faz duvidar do resto dos numeros da tela.
-    cols += `<section class="kb-col">
+    cols += `<section class="kb-col" data-col="${esc(e.k)}">
       <div class="kb-h">
         <div class="n"><span class="dot" style="background:var(--lime)"></span>${esc(e.rot)}</div>
         <div class="v">${gs.length && !somaV ? "a definir" : esc(brlCurto(somaV))}</div>
@@ -4848,7 +4860,8 @@ TELAS.funil = function(){
       <div class="kb-body">${corpo}</div>
     </section>`;
   }
-  h += '<div class="tiny muted no-mob">Toque no cartão pra mover de estágio. Não existe arrastar: no celular o arraste dispara sozinho no meio da rolagem.</div>';
+  h += '<div class="tiny muted no-mob">Arraste o cartão pra outra coluna, ou toque nele pra escolher a etapa. ' +
+       'Arrastar move na hora, e o Desfazer fica 8 segundos na tela.</div>';
   h += '<div class="kb no-mob">' + cols + '</div>';
 
   /* ---- UM ESTAGIO POR VEZ NO CELULAR ----
@@ -5251,6 +5264,127 @@ ACOES.funilSalvarEstagio = function(el){
     })
     .catch(function(e){ ruim("Não deu pra salvar: " + ((e && e.message) || "erro")); });
 };
+
+/* ---------------------------------------------------------------------
+   MOVER ARRASTANDO
+
+   Diferente de mover pela folha em uma coisa so: aqui NAO tem pedagio.
+   Soltou, moveu. E o que Pipedrive, RD, HubSpot e Agendor fazem, e foi a
+   escolha da casa depois de ver os cinco caminhos possiveis.
+
+   O que substitui o pedagio: o proprio negocio passa a aparecer sem
+   proximo passo, e isso ja e cobrado em tres lugares (a fila do Hoje, o
+   selo do cartao e o bloco de Tarefas dentro do negocio). E o desfazer de
+   8 segundos continua, que e a rede de quem soltou no lugar errado.
+
+   O valor que a etapa de proposta exige NAO bloqueia o arraste. Bloquear
+   seria voltar a ter pedagio por outro nome. Em vez disso o toast diz o
+   que ficou faltando, com o botao pra resolver dali mesmo. */
+function fnSoltarEm(id, novoK){
+  var n = achar("negocios", id);
+  if(!n) return;
+  var motivo = motivoBloqueio("crm_negocios");
+  if(motivo){ toast(motivo, "bad"); return; }
+  if(n.status !== "aberto"){
+    toast("Negócio já fechado não muda de estágio. O estágio em que ele fechou é o que explica onde o funil vaza.", "bad");
+    return;
+  }
+  var f = FUNIL[n.tipo] || [], iNovo = -1, i;
+  for(i=0;i<f.length;i++) if(f[i].k === novoK) iNovo = i;
+  if(iNovo < 0){ toast("Esse estágio não existe no funil de " + rotTipo(n.tipo) + ".", "bad"); return; }
+  if(n.estagio === novoK) return;          // soltou na mesma coluna: nada aconteceu
+
+  var eNovo = f[iNovo], eAtual = estagioDe(n);
+  var iAtual = idxEstagio(n);
+  var maiorAntes = Number(n.maiorEstagio);
+  if(!isFinite(maiorAntes)) maiorAntes = 0;
+
+  var dados = { estagio:novoK, estagioDesde:hojeISO(), maiorEstagio:Math.max(maiorAntes, iNovo) };
+  var antes = { estagio:n.estagio || "", estagioDesde:n.estagioDesde || hojeISO(), maiorEstagio:maiorAntes };
+
+  var ativ = {
+    tipo:"estagio", semToque:true, de:n.estagio || "", para:novoK,
+    quando:hojeISO(), ts:Date.now(),
+    texto:"De " + (eAtual.rot || "?") + " para " + (eNovo.rot || "?") +
+          (iNovo < iAtual ? " (voltou)" : "") + ", arrastando"
+  };
+
+  gravar("crm_negocios", id, dados)
+    .then(function(){ return registrarAtividade(id, ativ); })
+    .then(function(){
+      comDesfazer("Movido pra " + (eNovo.rot || "novo estágio"), "crm_negocios", id, antes);
+      /* Dois avisos que nao travam nada, so contam o que ficou pendente. */
+      if(!n.proxData && !ngTarefasDoNegocio(id, true).length)
+        toast("Esse negócio está sem próximo passo. Ele aparece na fila do Hoje como parado.", "bad");
+      else if(ehRecorrente(n) && iNovo >= fnIdxProposta(n.tipo) && !(mrrDe(n) > 0))
+        toast("Entrou em " + (eNovo.rot || "proposta") + " sem valor. A previsão do mês não conta ele.", "bad");
+      redesenhar();
+    })
+    .catch(function(e){ toast("Não deu pra mover: " + ((e && e.message) || "erro"), "bad"); });
+}
+/* Indice da primeira etapa marcada como compromisso, que e onde o valor
+   passa a importar pra previsao. Sem nenhuma marcada, a metade do funil. */
+function fnIdxProposta(tipoK){
+  var f = FUNIL[tipoK] || [], i;
+  for(i=0;i<f.length;i++) if(f[i].compromisso) return i;
+  return Math.floor(f.length / 2);
+}
+
+/* A escuta do arraste. Uma so pra pagina inteira, ligada uma vez: o
+   quadro e redesenhado a cada mudanca, e listener por cartao vazaria
+   um pouco a cada redesenho ate a aba ficar pesada. */
+if(!window.FN_DND){
+  window.FN_DND = true;
+  var FN_ARRASTANDO = "";
+
+  document.addEventListener('dragstart', function(ev){
+    var c = ev.target && ev.target.closest ? ev.target.closest('[data-arr]') : null;
+    if(!c) return;
+    FN_ARRASTANDO = c.getAttribute('data-arr');
+    c.classList.add("dragging");
+    try{
+      ev.dataTransfer.effectAllowed = "move";
+      ev.dataTransfer.setData("text/plain", FN_ARRASTANDO);
+    }catch(e){}
+  });
+
+  document.addEventListener('dragend', function(ev){
+    var c = ev.target && ev.target.closest ? ev.target.closest('[data-arr]') : null;
+    if(c) c.classList.remove("dragging");
+    FN_ARRASTANDO = "";
+    var cols = document.querySelectorAll(".kb-col.drop");
+    for(var i=0;i<cols.length;i++) cols[i].classList.remove("drop");
+  });
+
+  /* dragover com preventDefault e o que TORNA a coluna um alvo valido.
+     Sem ele o navegador recusa o solte e o cartao volta voando, sem
+     nenhuma explicacao na tela. */
+  document.addEventListener('dragover', function(ev){
+    if(!FN_ARRASTANDO) return;
+    var col = ev.target && ev.target.closest ? ev.target.closest('.kb-col') : null;
+    if(!col) return;
+    ev.preventDefault();
+    try{ ev.dataTransfer.dropEffect = "move"; }catch(e){}
+    if(!col.classList.contains("drop")) col.classList.add("drop");
+  });
+
+  document.addEventListener('dragleave', function(ev){
+    var col = ev.target && ev.target.closest ? ev.target.closest('.kb-col') : null;
+    if(col && !col.contains(ev.relatedTarget)) col.classList.remove("drop");
+  });
+
+  document.addEventListener('drop', function(ev){
+    if(!FN_ARRASTANDO) return;
+    var col = ev.target && ev.target.closest ? ev.target.closest('.kb-col') : null;
+    if(!col) return;
+    ev.preventDefault();
+    col.classList.remove("drop");
+    var id = FN_ARRASTANDO;
+    FN_ARRASTANDO = "";
+    var destino = col.getAttribute("data-col");
+    if(id && destino) fnSoltarEm(id, destino);
+  });
+}
 
 /* =====================================================================
    FOLHA DA VIRADA DE EDICAO
