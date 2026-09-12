@@ -988,7 +988,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.17";
+var VERSAO = "2026-09-11.18";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -6771,6 +6771,18 @@ function ngBlocoTarefas(n){
   var aberto = n.status === "aberto";
   var prox = aberto ? ngProximaTarefa(n.id) : null;
 
+  /* Compromisso antigo, que mora nos campos do negocio e ainda nao virou
+     tarefa. Entra na lista como se fosse uma, pra tela nao se contradizer
+     com o bloco de Saude, que le esses mesmos campos. */
+  var legado = null;
+  if(aberto && !abertas.length && n.proxData){
+    var pl = proxTipoDe(n.proxTipo) || { rot:"Próximo passo", tarefa:"tarefa" };
+    legado = { id:"", tipo:pl.tarefa || "tarefa",
+               texto: n.proxTexto || pl.rot, data:n.proxData, donoNome:"", legado:true };
+    abertas = [legado];
+    prox = legado;
+  }
+
   /* O selo de quando vence vem do primeiro item, que e o compromisso do
      negocio. Vermelho pra vencido, amarelo pra hoje ou amanha. */
   var venc = prox ? diasVencido(prox.data) : null;
@@ -6806,6 +6818,17 @@ function ngBlocoTarefas(n){
       '</div>';
   }
 
+  /* COMPROMISSO DE ANTES DAS TAREFAS.
+
+     Negocio cadastrado antes de 11/09/2026 tem o proximo passo nos quatro
+     campos do documento e nenhuma tarefa. Sem este caminho a tela se
+     contradizia na cara da pessoa: o bloco dizia "sem proximo passo" e o
+     bloco de Saude, do lado, dizia "cobrar resposta, venceu ha 3 dias".
+     Duas frases opostas sobre o mesmo negocio, a um palmo de distancia.
+
+     Ele aparece como a linha que e, com os mesmos botoes, e vira tarefa
+     de verdade no primeiro toque. */
+
   for(var i=0;i<abertas.length;i++){
     var tf = abertas[i];
     var ehProx = prox && prox.id === tf.id;
@@ -6821,10 +6844,16 @@ function ngBlocoTarefas(n){
           (atras ? ', venceu há ' + diasVencido(tf.data) + ' dias' : '') +
           (tf.donoNome ? ' · ' + esc(tf.donoNome) : '') + '</div>' +
       '</div>' +
-      (bloq ? '' :
-        '<button class="btn btn-sm" data-a="tfFeita" data-id="' + esc(tf.id) + '">✓</button>' +
-        '<button class="btn btn-sm btn-ghost" data-a="tfEditar" data-id="' + esc(tf.id) + '">Editar</button>') +
-    '</div>';
+      (bloq ? '' : tf.legado
+        /* O antigo nao tem id de tarefa, entao os botoes dele sao os do
+           negocio: trocar reescreve os campos, e no primeiro registro ele
+           vira tarefa de verdade. */
+        ? '<button class="btn btn-sm btn-ghost" data-a="ngTrocarProx" data-id="' + esc(n.id) + '">Trocar</button>'
+        : '<button class="btn btn-sm" data-a="tfFeita" data-id="' + esc(tf.id) + '">✓</button>' +
+          '<button class="btn btn-sm btn-ghost" data-a="tfEditar" data-id="' + esc(tf.id) + '">Editar</button>') +
+    '</div>' +
+    (tf.legado ? '<div class="tiny muted" style="margin:-4px 0 8px">Marcado antes das tarefas existirem. ' +
+      'Ele vira tarefa sozinho no próximo registro.</div>' : '');
     /* O contador de adiamento era do bloco velho e nao pode sumir: tres
        adiamentos jogam o negocio pro risco alto da previsao, e a pessoa
        precisa ver isso onde decide. */
