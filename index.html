@@ -988,7 +988,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.15";
+var VERSAO = "2026-09-11.16";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -6576,46 +6576,16 @@ function ngLinhaDesconto(de, para, un){
 /* O próximo passo em destaque. Negócio aberto sem próximo passo é o
    estado mais perigoso do CRM, então ele aparece em amarelo e com botão,
    nunca como um campo vazio discreto. */
-function ngBlocoProx(n){
-  var bloq = motivoBloqueio("crm_negocios");
-  if(n.status !== "aberto") return "";
+/* O BLOCO DE PROXIMO PASSO FOI ABSORVIDO PELO DE TAREFAS.
 
-  if(!n.proxData){
-    return '<div class="card" style="border-color:rgba(255,184,0,.35)">' +
-      '<div class="sec-title" style="border-left-color:var(--warn)">Sem próximo passo</div>' +
-      '<div class="small muted2" style="margin:10px 0">Negócio aberto sem data marcada não aparece em fila nenhuma, e some do dia a dia sem ninguém decidir que ele morreu.</div>' +
-      '<button class="btn btn-primary btn-block" data-a="ngTrocarProx" data-id="' + esc(n.id) + '"' + (bloq?' disabled':'') + '>Marcar o próximo passo</button>' +
-      (bloq ? '<div class="tiny" style="color:var(--text3);margin-top:7px">' + esc(bloq) + '</div>' : '') +
-    '</div>';
-  }
+   Depois que o proximo passo virou a primeira tarefa aberta, os dois
+   blocos passaram a dizer a mesma coisa em lugares diferentes da tela, e
+   o de tarefas ainda estava enterrado na quinta posicao da coluna
+   lateral. Quem procurava as tarefas nao achava, e quem achava via o
+   mesmo compromisso escrito duas vezes.
 
-  var p = proxTipoDe(n.proxTipo) || { rot:"Próximo passo", ic:"•" };
-  var venc = diasVencido(n.proxData);
-  var cor = venc >= 1 ? "var(--red)" : (venc >= -1 ? "var(--warn)" : "var(--lime)");
-  var quandoTxt = venc >= 1 ? ("venceu há " + venc + (venc===1?" dia":" dias"))
-                : venc === 0 ? "é hoje" : quando(n.proxData);
-
-  return '<div class="card card-lime">' +
-    '<div class="card-head" style="margin-bottom:10px">' +
-      '<div class="sec-title">Próximo passo' + ajuda("proximo_passo") + '</div>' +
-      '<span class="tag" style="color:' + cor + ';border-color:' + cor + '">' + esc(quandoTxt) + '</span>' +
-    '</div>' +
-    '<div class="h2" style="text-transform:none">' + p.ic + ' ' + esc(p.rot) + '</div>' +
-    '<div class="small muted2" style="margin-top:4px">' + esc(dataExtenso(n.proxData)) +
-      (n.proxHora ? ', às ' + esc(n.proxHora) : '') + '</div>' +
-    (n.proxTexto ? '<div class="small" style="margin-top:7px">' + esc(n.proxTexto) + '</div>' : '') +
-    ((n.vezesAdiado||0) >= 1
-      ? '<div class="tiny" style="margin-top:7px;color:' + ((n.vezesAdiado||0) >= ADIAMENTOS_PARA_RISCO ? 'var(--red)' : 'var(--text3)') +
-        '">já foi adiado ' + n.vezesAdiado + (n.vezesAdiado===1?' vez':' vezes') +
-        ((n.vezesAdiado||0) >= ADIAMENTOS_PARA_RISCO ? ', e por isso ele entra como risco alto na previsão' : '') + '</div>'
-      : '') +
-    '<div class="pills" style="margin-top:13px">' +
-      '<button class="btn btn-sm" data-a="ngAdiar" data-id="' + esc(n.id) + '"' + (bloq?' disabled':'') + '>Adiar</button>' +
-      '<button class="btn btn-sm btn-ghost" data-a="ngTrocarProx" data-id="' + esc(n.id) + '"' + (bloq?' disabled':'') + '>Trocar</button>' +
-    '</div>' +
-    (bloq ? '<div class="tiny" style="color:var(--text3);margin-top:7px">' + esc(bloq) + '</div>' : '') +
-  '</div>';
-}
+   Agora e um bloco so, no topo da coluna principal, que e onde o
+   compromisso do negocio tem que estar. */
 
 /* Quem decide. O botão de WhatsApp e o de ligar ficam aqui porque é daqui
    que o vendedor sai pra falar com a pessoa. */
@@ -6782,25 +6752,39 @@ function ngBlocoTarefas(n){
   var aberto = n.status === "aberto";
   var prox = aberto ? ngProximaTarefa(n.id) : null;
 
-  var h = '<div class="card' + (aberto && !abertas.length ? ' card-lime' : '') + '">' +
+  /* O selo de quando vence vem do primeiro item, que e o compromisso do
+     negocio. Vermelho pra vencido, amarelo pra hoje ou amanha. */
+  var venc = prox ? diasVencido(prox.data) : null;
+  var cor = venc === null ? "" : (venc >= 1 ? "var(--red)" : (venc >= -1 ? "var(--warn)" : "var(--lime)"));
+  var quandoTxt = venc === null ? ""
+    : (venc >= 1 ? ("venceu há " + venc + (venc === 1 ? " dia" : " dias"))
+       : venc === 0 ? "é hoje" : quando(prox.data));
+
+  var h = '<div class="card' + (aberto ? (abertas.length ? ' card-lime' : '') : '') + '"' +
+      (aberto && !abertas.length ? ' style="border-color:rgba(255,184,0,.35)"' : '') + '>' +
     '<div class="card-head" style="margin-bottom:8px"><div>' +
-      '<div class="sec-title">Tarefas' + ajuda("tarefas_negocio") + '</div>' +
+      '<div class="sec-title"' + (aberto && !abertas.length ? ' style="border-left-color:var(--warn)"' : '') + '>' +
+        (aberto && !abertas.length ? 'Sem próximo passo' : 'Tarefas') + ajuda("tarefas_negocio") + '</div>' +
       '<div class="sec-sub" style="padding-left:0">' +
         (aberto
-          ? 'A mais próxima é o próximo passo deste negócio.'
+          ? (abertas.length ? 'A primeira é o próximo passo deste negócio.' : '')
           : 'Esse negócio está fechado, então o que sobrou dele vive aqui.') +
-      '</div></div><div>' +
+      '</div></div><div style="display:flex;gap:8px;align-items:center">' +
+      (quandoTxt ? '<span class="tag" style="color:' + cor + ';border-color:' + cor + '">' +
+        esc(quandoTxt) + '</span>' : '') +
       (bloq ? '' : '<button class="btn btn-sm' + (abertas.length ? '' : ' btn-primary') +
         '" data-a="tfDoNegocio" data-id="' + esc(n.id) + '">+ Tarefa</button>') +
     '</div></div>';
 
   if(!abertas.length){
-    return h + '<div class="' + (aberto ? 'small' : 'tiny muted') + '">' +
+    return h + '<div class="' + (aberto ? 'small muted2' : 'tiny muted') + '">' +
       (aberto
-        ? 'Esse negócio está sem nada marcado. Enquanto ficar assim, ninguém vai lembrar dele: ' +
-          'ele aparece na fila do Hoje como negócio sem plano e para de andar.'
+        ? 'Negócio aberto sem nada marcado não aparece em fila nenhuma, e some do dia a dia ' +
+          'sem ninguém decidir que ele morreu.'
         : 'Nenhuma tarefa em aberto pra esse negócio.') +
-      '</div></div>';
+      '</div>' +
+      (bloq ? '<div class="tiny" style="color:var(--text3);margin-top:7px">' + esc(bloq) + '</div>' : '') +
+      '</div>';
   }
 
   for(var i=0;i<abertas.length;i++){
@@ -6822,7 +6806,20 @@ function ngBlocoTarefas(n){
         '<button class="btn btn-sm" data-a="tfFeita" data-id="' + esc(tf.id) + '">✓</button>' +
         '<button class="btn btn-sm btn-ghost" data-a="tfEditar" data-id="' + esc(tf.id) + '">Editar</button>') +
     '</div>';
+    /* O contador de adiamento era do bloco velho e nao pode sumir: tres
+       adiamentos jogam o negocio pro risco alto da previsao, e a pessoa
+       precisa ver isso onde decide. */
+    if(ehProx && (n.vezesAdiado || 0) >= 1)
+      h += '<div class="tiny" style="margin:-4px 0 8px;color:' +
+        ((n.vezesAdiado||0) >= ADIAMENTOS_PARA_RISCO ? 'var(--red)' : 'var(--text3)') + '">' +
+        'já foi adiado ' + n.vezesAdiado + (n.vezesAdiado === 1 ? ' vez' : ' vezes') +
+        ((n.vezesAdiado||0) >= ADIAMENTOS_PARA_RISCO
+          ? ', e por isso ele entra como risco alto na previsão' : '') + '</div>';
   }
+  if(aberto && prox && !bloq)
+    h += '<div class="pills" style="margin-top:11px">' +
+      '<button class="btn btn-sm btn-ghost" data-a="ngAdiar" data-id="' + esc(n.id) + '">Adiar o próximo passo</button>' +
+    '</div>';
   return h + '</div>';
 }
 
@@ -6949,7 +6946,7 @@ TELAS.negocio = function(){
   '<div class="ng-cols">' +
     '<div class="ng-main">' +
       ngBlocoTopo(n) +
-      ngBlocoProx(n) +
+      ngBlocoTarefas(n) +
       ngFormRegistro(n, "rg", false) +
       '<div class="card">' +
         '<div class="sec-title">Linha do tempo' + ajuda("proximo_passo") + '</div>' +
@@ -6962,7 +6959,6 @@ TELAS.negocio = function(){
       ngBlocoQuemToca(n) +
       ngBlocoOrigem(n) +
       ngBlocoSaude(n) +
-      ngBlocoTarefas(n) +
       ngBlocoOutros(n) +
       ngBlocoProposta(n) +
       ngBlocoValores(n) +
