@@ -988,7 +988,7 @@ function atualizaAvisoFila(){
    negócio no banco é regra que qualquer um edita.
    ===================================================================== */
 
-var VERSAO = "2026-09-11.16";
+var VERSAO = "2026-09-11.17";
 
 /* ---------------------------------------------------------------------
    OS DOIS FUNIS
@@ -5594,11 +5594,30 @@ var NG_CSS =
 '<style>' +
 '.ng-cols{display:flex;flex-direction:column;gap:16px}' +
 '.ng-main,.ng-side{display:flex;flex-direction:column;gap:16px;min-width:0}' +
-'@média(min-width:900px){.ng-cols{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}}' +
+'@media(min-width:900px){.ng-cols{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}}' +
+/* ABAS. Barra colada no topo do miolo, com a aba ativa marcada por uma
+   linha grossa embaixo e nao por fundo cheio: fundo cheio competiria com
+   o verde do valor heroi, que e o que a vista tem que achar primeiro. */
+'.ng-abas{display:flex;gap:2px;border-bottom:1px solid var(--border2);margin-bottom:-4px;overflow-x:auto}' +
+'.ng-aba{appearance:none;background:none;border:0;border-bottom:2px solid transparent;' +
+  'color:var(--text3);font-family:var(--disp);font-size:14px;font-weight:600;letter-spacing:.5px;' +
+  'text-transform:uppercase;padding:10px 14px;cursor:pointer;white-space:nowrap}' +
+'.ng-aba:hover{color:var(--text2)}' +
+'.ng-aba.on{color:var(--lime);border-bottom-color:var(--lime)}' +
+'.ng-aba .cnt{display:inline-block;margin-left:6px;font-family:var(--body);font-size:11px;' +
+  'font-weight:600;color:var(--text3);background:var(--card3);border-radius:999px;padding:1px 6px}' +
+'.ng-aba.on .cnt{color:var(--lime-ink);background:var(--lime-dim)}' +
 '.ng-lin{display:flex;justify-content:space-between;gap:12px;padding:7px 0;' +
   'border-bottom:1px solid var(--border);font-size:12.5px}' +
 '.ng-lin:last-child{border-bottom:0}' +
 '</style>';
+
+/* Qual aba do negocio esta aberta. Mora so em memoria e volta pro Resumo
+   quando a pessoa troca de negocio: abrir a Marroca na aba Valores porque
+   foi onde voce estava na Padaria e o tipo de coisa que faz a pessoa
+   achar que clicou errado. */
+var NG_ABA = "resumo";
+var NG_ABA_DE = "";
 
 /* ---------------------------------------------------------------------
    HELPERS PEQUENOS (prefixo ng, são privados deste módulo)
@@ -6934,37 +6953,124 @@ TELAS.negocio = function(){
       '<button class="btn" data-a="ir" data-r="negocios">Ver a lista de negócios</button></div>';
   }
 
-  // A linha do tempo é a única leitura de banco desta tela, e roda depois
-  // de pintar pra a tela nunca esperar rede pra aparecer.
-  DEPOIS.push(function(){ ngPintarTimeline(n.id, false); });
+  /* A leitura da linha do tempo agora mora dentro da aba Historico: e a
+     unica leitura de banco desta tela, e cobrar ela de quem abriu o
+     negocio so pra ver o valor seria pagar por uma tela que ninguem
+     olhou. */
 
   /* A ordem do HTML é a ordem do CELULAR: faixa, stepper, ações, próximo
      passo, registrar, timeline, e só depois contato, indicação, saúde,
      valores e observação. No computador as duas colunas viram grid e a
      lateral vai pra direita, sem mudar uma linha do HTML. */
+  /* Trocou de negocio, volta pro Resumo. */
+  if(NG_ABA_DE !== n.id){ NG_ABA = "resumo"; NG_ABA_DE = n.id; }
+
   return NG_CSS +
   '<div class="ng-cols">' +
     '<div class="ng-main">' +
       ngBlocoTopo(n) +
-      ngBlocoTarefas(n) +
-      ngFormRegistro(n, "rg", false) +
-      '<div class="card">' +
-        '<div class="sec-title">Linha do tempo' + ajuda("proximo_passo") + '</div>' +
-        '<div class="sec-sub">as últimas ' + TIMELINE_PAGINA + ' interacoes</div>' +
-        '<div id="ngTl" data-n="' + esc(n.id) + '" style="margin-top:12px"></div>' +
-      '</div>' +
+      ngAbas(n) +
+      ngConteudoAba(n) +
     '</div>' +
     '<div class="ng-side">' +
       ngBlocoContato(n) +
       ngBlocoQuemToca(n) +
-      ngBlocoOrigem(n) +
       ngBlocoSaude(n) +
-      ngBlocoOutros(n) +
-      ngBlocoProposta(n) +
-      ngBlocoValores(n) +
     '</div>' +
   '</div>';
 };
+
+/* ---------------------------------------------------------------------
+   AS ABAS DO NEGOCIO
+
+   A tela tinha doze blocos numa rolagem so, e o layout de duas colunas
+   estava quebrado por um acento em "@media", entao tudo empilhava numa
+   coluna: doze cartoes de altura, e o que a pessoa procurava ficava no
+   nono. Foi por isso que ninguem achava as tarefas.
+
+   Abas no miolo e o desenho de RD Station, HubSpot e Salesforce. A
+   lateral fica so com o que se olha SEM clicar, enquanto se fala com o
+   cliente: com quem falar, de quem e o negocio, e se ele esta vivo.
+
+   O contador na aba existe pra a aba nao precisar ser aberta pra saber
+   se tem algo la dentro. Sem ele, aba vira gaveta fechada. */
+function ngAbas(n){
+  var abas = [
+    ["resumo",   "Resumo",    null],
+    ["tarefas",  "Tarefas",   ngTarefasDoNegocio(n.id, true).length],
+    ["historico","Histórico", null],
+    ["valores",  "Valores",   null]
+  ];
+  var h = '<div class="ng-abas">', i;
+  for(i=0;i<abas.length;i++){
+    var k = abas[i][0], cnt = abas[i][2];
+    h += '<button type="button" class="ng-aba' + (NG_ABA === k ? " on" : "") + '" ' +
+         'data-a="ngAba" data-k="' + k + '">' + esc(abas[i][1]) +
+         (cnt ? '<span class="cnt">' + cnt + '</span>' : '') + '</button>';
+  }
+  return h + '</div>';
+}
+ACOES.ngAba = function(el){
+  NG_ABA = el.getAttribute('data-k') || "resumo";
+  redesenhar();
+};
+
+function ngConteudoAba(n){
+  if(NG_ABA === "tarefas")   return ngAbaTarefas(n);
+  if(NG_ABA === "historico") return ngAbaHistorico(n);
+  if(NG_ABA === "valores")   return ngAbaValores(n);
+  return ngAbaResumo(n);
+}
+
+/* RESUMO e a aba de chegada, entao ela carrega o que responde "onde esse
+   negocio esta": o compromisso aberto, de onde ele veio, e os vizinhos
+   da mesma empresa. */
+function ngAbaResumo(n){
+  return ngBlocoTarefas(n) +
+         ngBlocoOrigem(n) +
+         ngBlocoProposta(n) +
+         ngBlocoOutros(n);
+}
+
+/* TAREFAS traz a lista inteira, inclusive o que ja foi feito. E a
+   diferenca dela pro bloco do Resumo: la sao os compromissos vivos, aqui
+   e o historico do que esse negocio ja cobrou de voce. */
+function ngAbaTarefas(n){
+  var h = ngBlocoTarefas(n);
+  var feitas = ngTarefasDoNegocio(n.id, false).filter(function(t){ return !!t.feita; });
+  if(!feitas.length) return h;
+  feitas.sort(function(a, b){ return (b.feitaEm || b.data || "") < (a.feitaEm || a.data || "") ? -1 : 1; });
+  h += '<div class="card"><div class="sec-title">Já feitas</div>' +
+       '<div class="sec-sub">' + feitas.length + (feitas.length === 1 ? ' tarefa concluída' : ' tarefas concluídas') + '</div>';
+  for(var i=0;i<feitas.length && i<30;i++){
+    var t = feitas[i];
+    h += '<div style="display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border)">' +
+      '<div style="color:var(--green)">✓</div>' +
+      '<div style="flex:1;min-width:0"><div class="truncate" style="color:var(--text2)">' +
+        esc(t.texto || rotTarefa(t.tipo)) + '</div>' +
+        '<div class="tiny muted">' + esc(rotTarefa(t.tipo)) +
+        (t.feitaEm ? ' · ' + esc(dataBR(t.feitaEm)) : '') +
+        (t.feitaPor ? ' por ' + esc(t.feitaPor) : '') + '</div></div>' +
+    '</div>';
+  }
+  if(feitas.length > 30)
+    h += '<div class="tiny muted center" style="margin-top:8px">Mostrando as 30 mais recentes de ' + feitas.length + '.</div>';
+  return h + '</div>';
+}
+
+/* HISTORICO junta registrar e linha do tempo, que e um movimento so:
+   escrever o que aconteceu e ver o que ja aconteceu. */
+function ngAbaHistorico(n){
+  DEPOIS.push(function(){ ngPintarTimeline(n.id, false); });
+  return ngFormRegistro(n, "rg", false) +
+    '<div class="card">' +
+      '<div class="sec-title">Linha do tempo' + ajuda("proximo_passo") + '</div>' +
+      '<div class="sec-sub">as últimas ' + TIMELINE_PAGINA + ' interações</div>' +
+      '<div id="ngTl" data-n="' + esc(n.id) + '" style="margin-top:12px"></div>' +
+    '</div>';
+}
+
+function ngAbaValores(n){ return ngBlocoValores(n); }
 
 /* ---------------------------------------------------------------------
    QUEM TOCA ESTE NEGOCIO
